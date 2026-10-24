@@ -1,1 +1,11 @@
 .venv/
+__pycache__/
+*.zip
+results/raw/**
+!results/raw/README.md
+results/models/**
+!results/models/README.md
+outputs/
+.ipynb_checkpoints/
+.DS_Store
+hpc/logs/

@@ -1,0 +1,22 @@
+# eclipse-sumo 1.28 requires macOS 15; pin 1.27.1 for this course environment.
+eclipse-sumo==1.27.1
+sumo-data==1.27.1
+traci==1.27.1
+sumolib==1.27.1
+sumo-rl==1.4.5
+# 1.4.5 calls pettingzoo.utils.agent_selector. That name is a class through 1.24.3;
+# PettingZoo 1.25 renamed it to AgentSelector and parallel_env then fails.
+pettingzoo==1.24.3
+supersuit
+stable-baselines3[extra]>=2.0
+gymnasium
+torch
+numpy
+pandas
+matplotlib
+seaborn
+scipy
+pyyaml
+tqdm
+pytest
+networkx
