@@ -1,0 +1,49 @@
+# Shared protocol. make_env always uses these timing values.
+env:
+  scenario: single
+  demand: default
+  split: train
+  parallel: true
+  reward_fn: diff-waiting-time
+  observation_class: null
+  fixed_ts: false
+  use_gui: false
+  additional_sumo_cmd: null
+  out_csv: null
+  num_seconds: 3600
+  delta_time: 5
+  yellow_time: 2
+  min_green: 5
+
+ql:
+  alpha: 0.1
+  gamma: 0.99
+  epsilon_start: 0.05
+  epsilon_min: 0.01
+  epsilon_decay: 0.99
+
+dqn:
+  lr: 1.0e-3
+  gamma: 0.99
+  buffer: 50000
+  batch: 32
+  target_update: 500
+  final_eps: 0.01
+
+ppo:
+  lr: 3.0e-4
+  gamma: 0.99
+  gae_lambda: 0.95
+  clip: 0.2
+  n_steps: 2048
+  n_epochs: 10
+  batch: 64
+
+coordinated:
+  neighbor_alpha: [0.0, 0.25, 0.5, 0.75]
+
+# Route-generation seeds. Validation and test do not overlap train.
+seeds:
+  train: [0, 1, 2, 3, 4]
+  validation: [5, 6, 7, 8, 9]
+  test: [10, 11, 12, 13, 14]
