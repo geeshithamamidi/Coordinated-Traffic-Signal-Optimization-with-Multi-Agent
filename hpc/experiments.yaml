@@ -1,0 +1,31 @@
+# Sweep expanded by scripts/make_jobs.py into hpc/jobs.txt.
+# Each line is "method scenario demand seed".
+methods:
+  - ql
+  - dqn
+  - shared_ppo
+  - coordinated_0
+  - coordinated_0.25
+  - coordinated_0.5
+  - coordinated_0.75
+
+scenarios:
+  - single
+  - grid4x4
+  - arterial4x4
+  - cologne8
+  - ingolstadt7
+
+demands:
+  - default
+
+# Training seeds. These match configs/base.yaml seeds.train.
+seeds: [0, 1, 2, 3, 4]
+
+# 3600 s episodes per training run. RESCO scenarios share one budget.
+episodes:
+  single: 100
+  grid4x4: 300
+  arterial4x4: 200
+  cologne8: 200
+  ingolstadt7: 200
