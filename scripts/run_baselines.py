@@ -18,10 +18,11 @@ from src.baselines.fixed_time import (  # noqa: E402
     fixed_time_factory,
     tune_fixed_cycle,
 )
+from src.baselines.max_pressure import max_pressure_factory  # noqa: E402
 from src.evaluation.metrics import evaluate  # noqa: E402
 from src.utils.config import load_config  # noqa: E402
 
-METHODS = ("fixed_time", "fixed_cycle")
+METHODS = ("fixed_time", "fixed_cycle", "max_pressure")
 
 
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
@@ -54,6 +55,10 @@ def run_fixed_cycle(args, test_seeds, validation_seeds):
     return evaluate("fixed_cycle", args.scenario, args.demand, fixed_cycle_factory(green_s), 0, test_seeds)
 
 
+def run_max_pressure(args, test_seeds):
+    return evaluate("max_pressure", args.scenario, args.demand, max_pressure_factory, 0, test_seeds)
+
+
 def main(argv: list[str] | None = None) -> None:
     args = parse_args(argv)
     config = load_config(args.config)
@@ -64,6 +69,8 @@ def main(argv: list[str] | None = None) -> None:
         frames.append(run_fixed_time(args, test_seeds))
     if "fixed_cycle" in args.methods:
         frames.append(run_fixed_cycle(args, test_seeds, validation_seeds))
+    if "max_pressure" in args.methods:
+        frames.append(run_max_pressure(args, test_seeds))
     if frames:
         print(pd.concat(frames).to_string(index=False))
 
