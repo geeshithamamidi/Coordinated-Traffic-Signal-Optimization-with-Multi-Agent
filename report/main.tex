@@ -44,7 +44,24 @@ Code: \url{https://github.com/geeshithamamidi/Coordinated-Traffic-Signal-Optimiz
 
 \section{Background and Related Work}
 \label{sec:related}
-\todo{Related work.}
+
+\subsection{Classical Signal Control}
+Fixed-time control assigns each phase a precomputed green split and cycle length; Webster's method derives the cycle that minimizes delay from observed flow ratios~\cite{webster1958}. Adaptive systems such as SCOOT~\cite{hunt1981scoot} and SCATS~\cite{sims1980scats} adjust splits, cycles and offsets online from loop detectors and are deployed in many cities, but they rely on hand-designed traffic models and tuning. Max-Pressure~\cite{varaiya2013max} picks, at each intersection, the phase whose served movements have the largest difference between upstream and downstream queues, and is provably throughput-optimal under idealized assumptions. It needs no training and only local information, which makes it the strongest non-learning baseline in our study; we implement it ourselves on top of sumo-rl and compare every learned controller against it.
+
+\subsection{Single-Agent Deep RL for Signals}
+IntelliLight~\cite{wei2018intellilight} trained a deep Q-network on real camera-derived traffic data and showed that a learned policy can reduce delay relative to classical control at a single intersection. PressLight~\cite{wei2019presslight} brought the Max-Pressure idea into RL by using pressure as the reward and state, which improved coordination along arterials without explicit communication. These works treat each intersection's controller as one agent and do not isolate how much explicit coordination contributes. We reuse their insight that local queue information is a strong signal and keep a local waiting-time reward as our base.
+
+\subsection{Multi-Agent RL for Signal Networks}
+MA2C~\cite{chu2020ma2c} trains decentralized advantage actor-critic agents that include neighbors' states in their observation and use a spatially discounted reward, which stabilizes learning in large networks. CoLight~\cite{wei2019colight} learns which neighbors matter with graph attention, and MPLight~\cite{chen2020mplight} scales a shared pressure-based policy to thousands of intersections through parameter sharing. Each paper proposes a full method and compares it as a whole, so the separate effects of parameter sharing, neighbor observations and neighbor rewards remain mixed together. Our study varies these ingredients one at a time on a common environment.
+
+\subsection{Benchmarks and Tools}
+RESCO~\cite{ault2021resco} standardizes scenarios, including grid4x4, arterial4x4, Cologne and Ingolstadt, and reports that results across prior traffic RL papers are hard to compare because of inconsistent settings. The survey by Wei et al.~\cite{wei2019survey} reviews classical and learning-based signal control and highlights the same reproducibility issue. We use SUMO~\cite{lopez2018sumo} through the sumo-rl interface~\cite{sumorl} with RESCO networks, one environment factory for every method, and fixed train, validation and test seeds.
+
+\subsection{Learning Algorithms}
+DQN~\cite{mnih2015dqn} combines Q-learning with a replay buffer and target network, and PPO~\cite{schulman2017ppo} optimizes a clipped surrogate objective that is stable across many tasks. Gupta et al.~\cite{gupta2017cooperative} showed that sharing one policy's parameters across homogeneous agents speeds up cooperative multi-agent learning. We use these algorithms as building blocks rather than proposing a new one: independent DQN and PPO, a parameter-shared PPO and a coordinated PPO that adds MA2C-style neighbor observations and rewards.
+
+\subsection{Gap}
+Prior work shows that coordination can help, but it rarely measures how much each coordination mechanism adds over strong local baselines such as Max-Pressure under the same simulator, budget and seeds, or how the gain changes under demand surges and unbalanced flows. We address this gap with a controlled comparison of three coordination levels, independent, parameter-shared and coordinated agents, on single-intersection, grid and real-city scenarios, with statistical tests across training seeds.
 
 \section{Problem Formulation}
 \label{sec:problem}
