@@ -54,7 +54,6 @@ def run_episode(env, policy_fn: PolicyFn, seed: int) -> dict[str, Any]:
     obs = reset_out[0] if isinstance(reset_out, tuple) else reset_out
     rows: list[dict[str, Any]] = []
     try:
-        # sumo-rl marks every agent truncated at sim_max_time and leaves env.agents populated.
         while env.agents:
             actions = policy_fn(obs, env)
             obs, _reward, terminated, truncated, info = env.step(actions)
@@ -86,6 +85,7 @@ def evaluate(
     policy_factory: PolicyFactory,
     train_seed: int,
     test_seeds: list[int],
+    env_kwargs: dict[str, Any] | None = None,
 ) -> pd.DataFrame:
     """Evaluate one trained controller on each test seed and append a summary CSV.
 
@@ -108,6 +108,7 @@ def evaluate(
             parallel=True,
             use_gui=False,
             additional_sumo_cmd=f"--tripinfo-output {tripinfo_path} --no-step-log",
+            **(env_kwargs or {}),
         )
         try:
             metrics = run_episode(env, policy_fn, test_seed)

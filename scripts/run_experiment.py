@@ -22,7 +22,6 @@ from src.utils.config import load_config  # noqa: E402
 
 DEFAULT_JOBS = REPO_ROOT / "hpc" / "experiments.yaml"
 
-# Used when the sweep YAML has no episodes entry for the scenario.
 DEFAULT_EPISODES = {
     "single": 100,
     "grid4x4": 300,
@@ -116,12 +115,11 @@ def _train_shared_ppo(args: argparse.Namespace, config: dict[str, Any], episodes
 
 
 def _train_ql(args: argparse.Namespace, config: dict[str, Any], episodes: int) -> None:
-    raise NotImplementedError(
-        "TODO: QL trainer. Train with configs/base.yaml ql hyperparameters "
-        f"(alpha={config['ql']['alpha']}, gamma={config['ql']['gamma']}, "
-        f"epsilon_start={config['ql']['epsilon_start']}) for {episodes} episodes, "
-        "save a model, and add a policy_factory branch in scripts/run_experiment.py."
-    )
+    from src.baselines.independent_ql import train
+
+    model_file, curve_file = train(args.scenario, args.seed, episodes, config, demand=args.demand)
+    print(f"model: {model_file}")
+    print(f"curve: {curve_file}")
 
 
 def _train_dqn(args: argparse.Namespace, config: dict[str, Any], episodes: int) -> None:
@@ -159,6 +157,14 @@ def _policy_factory(method: str, scenario: str):
             return policy_factory(model_path(scenario, train_seed))
 
         return factory
+    if method == "ql":
+        from src.baselines.independent_ql import model_path as ql_model_path
+        from src.baselines.independent_ql import policy_factory as ql_policy_factory
+
+        def ql_factory(train_seed: int):
+            return ql_policy_factory(ql_model_path(scenario, train_seed))
+
+        return ql_factory
     raise NotImplementedError(
         f"TODO: policy_factory for {method} on {scenario}. "
         "The trainer must save a model this function can load with deterministic actions."
