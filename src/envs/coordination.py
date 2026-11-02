@@ -1,4 +1,4 @@
-"""Fixed-size neighbor observations for coordinated signal control."""
+"""Neighbor observations and spatial rewards for coordinated signal control."""
 
 from __future__ import annotations
 
@@ -7,6 +7,8 @@ from typing import Any
 import gymnasium.spaces
 import numpy as np
 from pettingzoo.utils.wrappers import BaseParallelWrapper
+
+from src.envs.neighbors import neighbor_distance_matrix
 
 
 class NeighborObsWrapper(BaseParallelWrapper):
@@ -83,6 +85,87 @@ class NeighborObsWrapper(BaseParallelWrapper):
                 block[start : start + self.slot_size] = _neighbor_slot(signals[neighbor], self.max_phases)
             augmented[agent] = np.concatenate([own_vector, block])
         return augmented
+
+
+class SpatialRewardWrapper(BaseParallelWrapper):
+    r"""Mix each agent's local reward with rewards at nearby signals.
+
+    ``r_i`` is the local diff-waiting-time reward. One-hop neighbors
+    ``N(i)`` follow Chu et al. 2020 (MA2C):
+
+    .. math::
+
+        \tilde{r}_i = r_i + \alpha \sum_{j \in N(i)} r_j
+
+    Hop decay uses hop distance :math:`d(i, j)` from
+    ``neighbor_distance_matrix``. Only agents with :math:`d(i, j) \le D`
+    contribute, and :math:`D = 2` by default:
+
+    .. math::
+
+        \tilde{r}_i = \sum_{j : d(i,j) \le D} \alpha^{d(i,j)} r_j
+
+    The constructor ``SpatialRewardWrapper(env, neighbor_map, alpha)`` uses
+    the one-hop equation. Pass ``hop_decay=True`` for the second equation.
+    ``alpha = 0`` returns the original rewards for either equation, since
+    :math:`\alpha^0 = 1` keeps the local term and every positive power of
+    zero drops out.
+    """
+
+    def __init__(
+        self,
+        env,
+        neighbor_map: dict[str, list[str]],
+        alpha: float,
+        hop_decay: bool = False,
+        D: int = 2,
+    ):
+        super().__init__(env)
+        if hop_decay and D < 0:
+            raise ValueError(f"D must be non-negative, got {D}.")
+        self.neighbor_map = {agent: list(neighbors) for agent, neighbors in neighbor_map.items()}
+        self.alpha = float(alpha)
+        self.hop_decay = hop_decay
+        self.D = D
+        self._distance = neighbor_distance_matrix(self.neighbor_map) if hop_decay else None
+
+    def step(self, actions: dict):
+        observations, rewards, terminations, truncations, infos = self.env.step(actions)
+        return observations, self._mix(rewards), terminations, truncations, infos
+
+    def _mix(self, rewards: dict) -> dict:
+        if self.alpha == 0.0:
+            return dict(rewards)
+        if self.hop_decay:
+            return {
+                agent: self._decayed_reward(agent, rewards)
+                for agent in rewards
+            }
+        mixed = {}
+        for agent, reward in rewards.items():
+            neighbor_sum = 0.0
+            for neighbor in self.neighbor_map.get(agent, ()):
+                if neighbor != agent and neighbor in rewards:
+                    neighbor_sum += float(rewards[neighbor])
+            mixed[agent] = float(reward) + self.alpha * neighbor_sum
+        return mixed
+
+    def _decayed_reward(self, agent: str, rewards: dict) -> float:
+        total = 0.0
+        for other, reward in rewards.items():
+            distance = self._hop(agent, other)
+            if distance <= self.D:
+                weight = 1.0 if distance == 0 else self.alpha ** distance
+                total += weight * float(reward)
+        return total
+
+    def _hop(self, agent: str, other: str) -> float:
+        if agent == other:
+            return 0.0
+        distance = self._distance
+        if distance is None or agent not in distance.index or other not in distance.columns:
+            return np.inf
+        return float(distance.loc[agent, other])
 
 
 def _ordered_neighbors(neighbors: list[str], k_max: int) -> list[str]:
