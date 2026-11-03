@@ -1,0 +1,44 @@
+"""Neighbor observations keep a fixed size and mark real neighbors with a presence flag."""
+
+from pathlib import Path
+
+import numpy as np
+import sumo_rl
+
+from src.envs.coordination import NeighborObsWrapper
+from src.envs.make_env import make_env
+from src.envs.neighbors import build_neighbor_map
+
+_GRID_NET = Path(sumo_rl.__file__).resolve().parent / "nets" / "RESCO" / "grid4x4" / "grid4x4.net.xml"
+_CORNERS = ("A0", "A3", "D0", "D3")
+
+
+def _presence_flags(observation: np.ndarray, own_dim: int, k_max: int, max_phases: int) -> np.ndarray:
+    slot_size = 2 + max_phases + 1
+    presence_index = slot_size - 1
+    return np.array(
+        [observation[own_dim + slot * slot_size + presence_index] for slot in range(k_max)],
+        dtype=np.float32,
+    )
+
+
+def test_grid4x4_neighbor_obs_dimension_and_corner_flags():
+    env = make_env("grid4x4", seed=0, additional_sumo_cmd="--no-step-log --no-warnings")
+    try:
+        neighbor_map = build_neighbor_map(str(_GRID_NET), list(env.possible_agents))
+        wrapped = NeighborObsWrapper(env, neighbor_map, k_max=4)
+        observations, _infos = wrapped.reset(seed=0)
+
+        for agent, observation in observations.items():
+            own_dim = int(np.prod(env.observation_space(agent).shape))
+            expected = own_dim + wrapped.k_max * (2 + wrapped.max_phases + 1)
+            assert observation.shape == (expected,)
+            assert wrapped.observation_space(agent).shape == (expected,)
+            assert observation.dtype == np.float32
+
+        for corner in _CORNERS:
+            own_dim = int(np.prod(env.observation_space(corner).shape))
+            flags = _presence_flags(observations[corner], own_dim, wrapped.k_max, wrapped.max_phases)
+            assert int(np.sum(flags == 1.0)) == 2
+    finally:
+        env.close()
