@@ -63,20 +63,27 @@ def make_vec_env(
     n_cpus: int = 1,
     reward_fn: str = "diff-waiting-time",
     demand: str = "default",
+    base_env=None,
 ):
     """Build the SB3 vector env used for shared PPO.
 
     Padding is a no-op when every signal has the same observation and action
     space. RESCO cities such as Ingolstadt do not, and the shared MLP needs
-    one space.
+    one space. ``base_env`` is an already built PettingZoo env; coordinated PPO
+    passes the neighbor and spatial-reward wrappers in before these SuperSuit
+    wrappers.
     """
-    env = make_env(
-        scenario,
-        demand=demand,
-        seed=seed,
-        reward_fn=reward_fn,
-        additional_sumo_cmd="--no-step-log --no-warnings",
-    )
+    if base_env is None:
+        env = make_env(
+            scenario,
+            demand=demand,
+            split="train",
+            seed=seed,
+            reward_fn=reward_fn,
+            additional_sumo_cmd="--no-step-log --no-warnings",
+        )
+    else:
+        env = base_env
     n_agents = len(env.possible_agents)
     env = ss.pad_observations_v0(env)
     env = ss.pad_action_space_v0(env)  # needed for heterogeneous RESCO cities
@@ -171,15 +178,27 @@ def train(
     n_cpus: int = 1,
     verbose: int = 1,
     demand: str = "default",
+    base_env=None,
+    saved_model: Path | None = None,
+    saved_curve: Path | None = None,
+    log_dir: Path | None = None,
+    log_name: str = "shared_ppo",
+    label: str = "shared PPO",
 ) -> tuple[Path, Path]:
     """Train shared PPO and write the model zip and the waiting-time curve.
 
     ``total_timesteps`` is ``episodes * 720 * n_agents``. The callback also
     stops on the episode boundary so a rollout does not run past that budget.
+    ``base_env`` is wrapped with SuperSuit inside this function. Coordinated
+    PPO uses it so neighbor observations and the spatial reward are applied
+    first.
     """
-    saved_model = model_path(scenario, seed)
-    saved_curve = curve_path(scenario, seed)
-    log_dir = tensorboard_path(scenario, seed)
+    if saved_model is None:
+        saved_model = model_path(scenario, seed)
+    if saved_curve is None:
+        saved_curve = curve_path(scenario, seed)
+    if log_dir is None:
+        log_dir = tensorboard_path(scenario, seed)
     log_dir.mkdir(parents=True, exist_ok=True)
 
     env, n_agents = make_vec_env(
@@ -189,16 +208,17 @@ def train(
         n_cpus=n_cpus,
         reward_fn=config["env"]["reward_fn"],
         demand=demand,
+        base_env=base_env,
     )
     callback = MeanSystemWaitingCallback(n_agents=n_agents, episodes=episodes)
     total_timesteps = training_timesteps(episodes, n_agents)
     print(
-        f"shared PPO: scenario={scenario} seed={seed} episodes={episodes} "
+        f"{label}: scenario={scenario} seed={seed} episodes={episodes} "
         f"agents={n_agents} total_timesteps={total_timesteps}"
     )
     try:
         model = build_model(env, config, seed=seed, tensorboard_log=str(log_dir), verbose=verbose)
-        model.learn(total_timesteps=total_timesteps, callback=callback, tb_log_name="shared_ppo")
+        model.learn(total_timesteps=total_timesteps, callback=callback, tb_log_name=log_name)
         saved_model.parent.mkdir(parents=True, exist_ok=True)
         model.save(saved_model)
     finally:

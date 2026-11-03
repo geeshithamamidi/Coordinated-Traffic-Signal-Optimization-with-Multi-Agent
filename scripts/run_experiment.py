@@ -72,11 +72,19 @@ def resolve_trainer(method: str) -> Trainer:
         return _train_ql
     if method == "dqn":
         return _train_dqn
+    if method == "coordinated_ppo":
+        return _train_coordinated_ppo
+    if method == "obs_only":
+        return _train_obs_only
+    if method == "reward_only":
+        return _train_reward_only
     if method.startswith("coordinated_"):
         alpha = _coordinated_alpha(method)
         return lambda args, config, episodes, alpha=alpha: _train_coordinated(args, config, episodes, alpha)
     raise ValueError(
-        f"Unknown method {method!r}. Expected shared_ppo, ql, dqn, or coordinated_<alpha>."
+        "Unknown method "
+        f"{method!r}. Expected shared_ppo, ql, dqn, coordinated_ppo, obs_only, "
+        "reward_only, or coordinated_<alpha>."
     )
 
 
@@ -94,7 +102,7 @@ def run(args: argparse.Namespace) -> Any:
         args.method,
         args.scenario,
         args.demand,
-        _policy_factory(args.method, args.scenario),
+        _policy_factory(args.method, args.scenario, config),
         args.seed,
         test_seeds,
     )
@@ -131,6 +139,35 @@ def _train_dqn(args: argparse.Namespace, config: dict[str, Any], episodes: int) 
     )
 
 
+def _train_coordinated_ppo(args: argparse.Namespace, config: dict[str, Any], episodes: int) -> None:
+    _train_ablation(args, config, episodes, "coordinated_ppo")
+
+
+def _train_obs_only(args: argparse.Namespace, config: dict[str, Any], episodes: int) -> None:
+    _train_ablation(args, config, episodes, "obs_only")
+
+
+def _train_reward_only(args: argparse.Namespace, config: dict[str, Any], episodes: int) -> None:
+    _train_ablation(args, config, episodes, "reward_only")
+
+
+def _train_ablation(args: argparse.Namespace, config: dict[str, Any], episodes: int, method: str) -> None:
+    from src.agents.coordinated_ppo import ablation_settings, train
+
+    neighbor_obs, alpha = ablation_settings(method, config=config)
+    model_file, curve_file = train(
+        args.scenario,
+        args.seed,
+        episodes,
+        config,
+        neighbor_obs=neighbor_obs,
+        alpha=alpha,
+        demand=args.demand,
+    )
+    print(f"model: {model_file}")
+    print(f"curve: {curve_file}")
+
+
 def _train_coordinated(args: argparse.Namespace, config: dict[str, Any], episodes: int, alpha: float) -> None:
     known = config["coordinated"]["neighbor_alpha"]
     raise NotImplementedError(
@@ -148,7 +185,7 @@ def _coordinated_alpha(method: str) -> float:
         raise ValueError(f"Method {method!r} must look like coordinated_0.25.") from exc
 
 
-def _policy_factory(method: str, scenario: str):
+def _policy_factory(method: str, scenario: str, config: dict[str, Any] | None = None):
     """Return evaluate's policy_factory(train_seed) -> policy_fn."""
     if method == "shared_ppo":
         from src.agents.shared_ppo import model_path, policy_factory
@@ -157,6 +194,15 @@ def _policy_factory(method: str, scenario: str):
             return policy_factory(model_path(scenario, train_seed))
 
         return factory
+    if method in ("coordinated_ppo", "obs_only", "reward_only"):
+        from src.agents.coordinated_ppo import ablation_settings, model_path, policy_factory
+
+        neighbor_obs, alpha = ablation_settings(method, config=config)
+
+        def ablation_factory(train_seed: int):
+            return policy_factory(model_path(scenario, train_seed, neighbor_obs, alpha), neighbor_obs)
+
+        return ablation_factory
     if method == "ql":
         from src.baselines.independent_ql import model_path as ql_model_path
         from src.baselines.independent_ql import policy_factory as ql_policy_factory
