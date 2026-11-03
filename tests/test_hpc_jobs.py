@@ -42,8 +42,10 @@ def test_episode_budget_prefers_the_sweep_yaml(tmp_path: Path):
 
 def test_resolve_trainer_names():
     assert resolve_trainer("shared_ppo").__name__ == "_train_shared_ppo"
-    with pytest.raises(NotImplementedError, match="QL trainer"):
-        resolve_trainer("ql")(None, {"ql": {"alpha": 0.1, "gamma": 0.99, "epsilon_start": 0.05}}, 1)
+    assert resolve_trainer("ql").__name__ == "_train_ql"
+    assert resolve_trainer("coordinated_ppo").__name__ == "_train_coordinated_ppo"
+    assert resolve_trainer("obs_only").__name__ == "_train_obs_only"
+    assert resolve_trainer("reward_only").__name__ == "_train_reward_only"
     with pytest.raises(NotImplementedError, match="neighbor_alpha=0.25"):
         resolve_trainer("coordinated_0.25")(
             Namespace(scenario="single"),

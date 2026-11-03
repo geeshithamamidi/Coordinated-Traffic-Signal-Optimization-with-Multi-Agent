@@ -1,0 +1,24 @@
+# Spatial-reward alpha for coordinated PPO.
+# Chosen on validation route seeds only. Test seeds were not used.
+alpha: 0.75
+reward_alpha: 0.75
+scenario: grid4x4
+demand: default
+train_seed: 0
+episodes: 8
+neighbor_obs: 'on'
+validation_seeds:
+- 5
+- 6
+- 7
+- 8
+- 9
+scores:
+- alpha: 0.0
+  avg_waiting_time: 376.0743965686175
+- alpha: 0.25
+  avg_waiting_time: 345.7376859354448
+- alpha: 0.5
+  avg_waiting_time: 289.33258134007826
+- alpha: 0.75
+  avg_waiting_time: 182.3961637154095
