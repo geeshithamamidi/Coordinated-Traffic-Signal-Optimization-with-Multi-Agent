@@ -32,6 +32,23 @@ def test_job_lines_are_the_cross_product(tmp_path: Path):
     assert output.read_text().splitlines() == lines
 
 
+def test_job_lines_append_alpha_for_an_alpha_sweep():
+    spec = {
+        "methods": ["coordinated_ppo"],
+        "scenarios": ["grid4x4"],
+        "demands": ["default"],
+        "seeds": [0, 1],
+        "alpha": [0, 0.25],
+        "episodes": {"grid4x4": 300},
+    }
+    assert job_lines(spec) == [
+        "coordinated_ppo grid4x4 default 0 0",
+        "coordinated_ppo grid4x4 default 0 0.25",
+        "coordinated_ppo grid4x4 default 1 0",
+        "coordinated_ppo grid4x4 default 1 0.25",
+    ]
+
+
 def test_episode_budget_prefers_the_sweep_yaml(tmp_path: Path):
     jobs = tmp_path / "experiments.yaml"
     jobs.write_text("episodes:\n  single: 3\n")
