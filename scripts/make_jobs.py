@@ -2,7 +2,8 @@
 """Write hpc/jobs.txt as methods x scenarios x demands x seeds.
 
 The YAML lists those four fields. ``seeds`` may be a list, or a mapping with a
-``train`` list (the shape used in configs/base.yaml).
+``train`` list (the shape used in configs/base.yaml). An optional ``alpha``
+list adds a fifth field, ``method scenario demand seed alpha``.
 
     python scripts/make_jobs.py
     python scripts/make_jobs.py --config hpc/experiments.yaml --output hpc/jobs.txt
@@ -60,19 +61,41 @@ def sweep_values(spec: dict[str, Any], key: str) -> list[str]:
     return rendered
 
 
+def sweep_alphas(spec: dict[str, Any]) -> list[str] | None:
+    """Optional alpha list. Absent means the job line stays four fields."""
+    if "alpha" not in spec or spec["alpha"] is None:
+        return None
+    values = spec["alpha"]
+    if not isinstance(values, list) or not values:
+        raise ValueError("YAML alpha must be a non-empty list when it is set.")
+    rendered = []
+    for value in values:
+        text = f"{float(value):g}"
+        if not text or any(character.isspace() for character in text):
+            raise ValueError(f"alpha entries cannot contain whitespace: {value!r}")
+        rendered.append(text)
+    return rendered
+
+
 def job_lines(spec: dict[str, Any]) -> list[str]:
-    """Cross product in method, scenario, demand, seed order."""
+    """Cross product in method, scenario, demand, seed, then alpha when set."""
     methods = sweep_values(spec, "methods")
     scenarios = sweep_values(spec, "scenarios")
     demands = sweep_values(spec, "demands")
     seeds = sweep_seeds(spec)
-    return [
-        f"{method} {scenario} {demand} {seed}"
-        for method in methods
-        for scenario in scenarios
-        for demand in demands
-        for seed in seeds
-    ]
+    alphas = sweep_alphas(spec)
+    lines = []
+    for method in methods:
+        for scenario in scenarios:
+            for demand in demands:
+                for seed in seeds:
+                    if alphas is None:
+                        lines.append(f"{method} {scenario} {demand} {seed}")
+                    else:
+                        lines.extend(
+                            f"{method} {scenario} {demand} {seed} {alpha}" for alpha in alphas
+                        )
+    return lines
 
 
 def write_jobs(spec: dict[str, Any], output: Path) -> list[str]:

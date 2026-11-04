@@ -40,6 +40,11 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--demand", required=True)
     parser.add_argument("--seed", required=True, type=int)
     parser.add_argument("--episodes", type=int, help="Override the training budget for this scenario")
+    parser.add_argument(
+        "--alpha",
+        type=float,
+        help="Spatial-reward alpha for coordinated_ppo. Overrides configs/frozen.yaml.",
+    )
     parser.add_argument("--config", help="YAML merged over configs/base.yaml")
     parser.add_argument("--jobs-config", type=Path, default=DEFAULT_JOBS, help="Sweep YAML with episode budgets")
     return parser.parse_args(argv)
@@ -92,9 +97,11 @@ def run(args: argparse.Namespace) -> Any:
     config = load_config(args.config)
     episodes = episode_budget(args.scenario, args.jobs_config, args.episodes)
     test_seeds = [int(seed) for seed in config["seeds"]["test"]]
+    if args.alpha is not None and args.method != "coordinated_ppo":
+        raise ValueError("--alpha is only used with method coordinated_ppo.")
     print(
         f"run_experiment method={args.method} scenario={args.scenario} demand={args.demand} "
-        f"seed={args.seed} episodes={episodes} test_seeds={test_seeds}"
+        f"seed={args.seed} episodes={episodes} alpha={args.alpha} test_seeds={test_seeds}"
     )
     trainer = resolve_trainer(args.method)
     trainer(args, config, episodes)
@@ -102,7 +109,7 @@ def run(args: argparse.Namespace) -> Any:
         args.method,
         args.scenario,
         args.demand,
-        _policy_factory(args.method, args.scenario, config),
+        _policy_factory(args.method, args.scenario, config, args.alpha),
         args.seed,
         test_seeds,
     )
@@ -140,6 +147,22 @@ def _train_dqn(args: argparse.Namespace, config: dict[str, Any], episodes: int) 
 
 
 def _train_coordinated_ppo(args: argparse.Namespace, config: dict[str, Any], episodes: int) -> None:
+    if getattr(args, "alpha", None) is not None:
+        from src.agents.coordinated_ppo import canonical_alpha, train
+
+        alpha = canonical_alpha(args.alpha)
+        model_file, curve_file = train(
+            args.scenario,
+            args.seed,
+            episodes,
+            config,
+            neighbor_obs=True,
+            alpha=alpha,
+            demand=args.demand,
+        )
+        print(f"model: {model_file}")
+        print(f"curve: {curve_file}")
+        return
     _train_ablation(args, config, episodes, "coordinated_ppo")
 
 
@@ -185,8 +208,17 @@ def _coordinated_alpha(method: str) -> float:
         raise ValueError(f"Method {method!r} must look like coordinated_0.25.") from exc
 
 
-def _policy_factory(method: str, scenario: str, config: dict[str, Any] | None = None):
+def _policy_factory(method: str, scenario: str, config: dict[str, Any] | None = None, alpha: float | None = None):
     """Return evaluate's policy_factory(train_seed) -> policy_fn."""
+    if method == "coordinated_ppo" and alpha is not None:
+        from src.agents.coordinated_ppo import canonical_alpha, model_path, policy_factory
+
+        chosen = canonical_alpha(alpha)
+
+        def sweep_factory(train_seed: int):
+            return policy_factory(model_path(scenario, train_seed, True, chosen), True)
+
+        return sweep_factory
     if method == "shared_ppo":
         from src.agents.shared_ppo import model_path, policy_factory
 

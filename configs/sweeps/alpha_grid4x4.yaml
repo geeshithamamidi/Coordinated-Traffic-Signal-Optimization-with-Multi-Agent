@@ -1,0 +1,26 @@
+# Coordinated PPO alpha sweep on grid4x4.
+#
+# Budget chosen: 300 episodes of 3600 s.
+# Notebook 01 timed one random grid4x4 episode at 55.58 s with TraCI and
+# 2.64 s with libsumo. At 300 episodes that is 4.63 h (TraCI) or 0.22 h
+# (libsumo). The SLURM task allows 8 h, and hpc/train_array.slurm sets
+# LIBSUMO_AS_TRACI=1, so 300 episodes fits and is the budget used here.
+#
+# Each jobs.txt line is "method scenario demand seed alpha".
+# python scripts/make_jobs.py --config configs/sweeps/alpha_grid4x4.yaml --output hpc/jobs.txt
+
+methods:
+  - coordinated_ppo
+
+scenarios:
+  - grid4x4
+
+demands:
+  - default
+
+seeds: [0, 1, 2, 3, 4]
+
+alpha: [0, 0.25, 0.5, 0.75]
+
+episodes:
+  grid4x4: 300

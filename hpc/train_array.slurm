@@ -43,11 +43,16 @@ if [[ -z "${LINE}" ]]; then
   exit 1
 fi
 
-read -r METHOD SCENARIO DEMAND SEED <<< "${LINE}"
-echo "task ${SLURM_ARRAY_TASK_ID}: method=${METHOD} scenario=${SCENARIO} demand=${DEMAND} seed=${SEED}"
+read -r METHOD SCENARIO DEMAND SEED ALPHA <<< "${LINE}"
+echo "task ${SLURM_ARRAY_TASK_ID}: method=${METHOD} scenario=${SCENARIO} demand=${DEMAND} seed=${SEED} alpha=${ALPHA:-frozen}"
 
-python scripts/run_experiment.py \
-  --method "${METHOD}" \
-  --scenario "${SCENARIO}" \
-  --demand "${DEMAND}" \
+ARGS=(
+  --method "${METHOD}"
+  --scenario "${SCENARIO}"
+  --demand "${DEMAND}"
   --seed "${SEED}"
+)
+if [[ -n "${ALPHA:-}" ]]; then
+  ARGS+=(--alpha "${ALPHA}")
+fi
+python scripts/run_experiment.py "${ARGS[@]}"
