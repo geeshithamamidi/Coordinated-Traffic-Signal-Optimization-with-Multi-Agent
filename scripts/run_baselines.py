@@ -37,6 +37,15 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     return parser.parse_args(argv)
 
 
+def fresh_csv(args, method: str) -> None:
+    """evaluate() appends rows, so a rerun would double them. Baselines are
+    deterministic, so start from an empty CSV each time."""
+    path = REPO_ROOT / "results" / "raw" / args.scenario / args.demand / f"{method}.csv"
+    if path.exists():
+        path.unlink()
+        print(f"removed old {path.relative_to(REPO_ROOT)}")
+
+
 def run_fixed_time(args, test_seeds):
     return evaluate("fixed_time", args.scenario, args.demand, fixed_time_factory, 0, test_seeds, FIXED_TIME_ENV_KWARGS)
 
@@ -65,6 +74,8 @@ def main(argv: list[str] | None = None) -> None:
     test_seeds = args.test_seeds or [int(s) for s in config["seeds"]["test"]]
     validation_seeds = args.validation_seeds or [int(s) for s in config["seeds"]["validation"]]
     frames = []
+    for method in args.methods:
+        fresh_csv(args, method)
     if "fixed_time" in args.methods:
         frames.append(run_fixed_time(args, test_seeds))
     if "fixed_cycle" in args.methods:
