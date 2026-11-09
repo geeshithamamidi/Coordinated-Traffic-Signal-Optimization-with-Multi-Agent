@@ -138,12 +138,11 @@ def _train_ql(args: argparse.Namespace, config: dict[str, Any], episodes: int) -
 
 
 def _train_dqn(args: argparse.Namespace, config: dict[str, Any], episodes: int) -> None:
-    raise NotImplementedError(
-        "TODO: DQN trainer. Train with configs/base.yaml dqn hyperparameters "
-        f"(lr={config['dqn']['lr']}, gamma={config['dqn']['gamma']}, "
-        f"buffer={config['dqn']['buffer']}) for {episodes} episodes, "
-        "save a model, and add a policy_factory branch in scripts/run_experiment.py."
-    )
+    from src.agents.independent_dqn import train
+
+    model_file, curve_file = train(args.scenario, args.seed, episodes, config, demand=args.demand)
+    print(f"model: {model_file}")
+    print(f"curve: {curve_file}")
 
 
 def _train_coordinated_ppo(args: argparse.Namespace, config: dict[str, Any], episodes: int) -> None:
@@ -243,6 +242,14 @@ def _policy_factory(method: str, scenario: str, config: dict[str, Any] | None = 
             return ql_policy_factory(ql_model_path(scenario, train_seed))
 
         return ql_factory
+    if method == "dqn":
+        from src.agents.independent_dqn import model_path as dqn_model_path
+        from src.agents.independent_dqn import policy_factory as dqn_policy_factory
+
+        def dqn_factory(train_seed: int):
+            return dqn_policy_factory(dqn_model_path(scenario, train_seed))
+
+        return dqn_factory
     raise NotImplementedError(
         f"TODO: policy_factory for {method} on {scenario}. "
         "The trainer must save a model this function can load with deterministic actions."
