@@ -102,8 +102,8 @@ def train(
                 if _all_done(terminated) or _all_done(truncated):
                     break
             mean_wait = float(np.mean(waits)) if waits else float("nan")
-            curve.append({"episode": episode, "mean_waiting_time": mean_wait})
-            print(f"ql {scenario} seed={seed} episode={episode}/{episodes} mean_waiting_time={mean_wait:.3f}")
+            curve.append({"episode": episode, "mean_system_waiting_time": mean_wait})
+            print(f"ql {scenario} seed={seed} episode={episode}/{episodes} mean_system_waiting_time={mean_wait:.3f}")
     finally:
         env.close()
 
