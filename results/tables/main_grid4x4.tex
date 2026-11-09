@@ -1,0 +1,15 @@
+\begin{table}[t]
+\centering
+\caption{Results on grid4x4 (default demand), mean $\pm$ 95\% CI over training seeds (over test episodes for rule-based methods).}
+\label{tab:main_grid4x4}
+\resizebox{\columnwidth}{!}{%
+\begin{tabular}{lcccc}
+\toprule
+Method & Wait (s) & Queue (veh) & Trip (s) & Throughput (veh) \\
+\midrule
+fixed\_cycle & 3.96 $\pm$ 0.05 & 20.01 $\pm$ 0.15 & 186.38 $\pm$ 0.71 & 1444.60 $\pm$ 1.42 \\
+fixed\_time & 6.45 $\pm$ 0.08 & 26.93 $\pm$ 0.24 & 203.29 $\pm$ 0.72 & 1439.80 $\pm$ 1.36 \\
+max\_pressure & \textbf{1.09 $\pm$ 0.05} & \textbf{10.63 $\pm$ 0.36} & \textbf{165.06 $\pm$ 1.03} & \textbf{1453.00 $\pm$ 1.96} \\
+\bottomrule
+\end{tabular}}
+\end{table}
