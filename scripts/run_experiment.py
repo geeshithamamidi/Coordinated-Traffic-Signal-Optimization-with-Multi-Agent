@@ -77,6 +77,8 @@ def resolve_trainer(method: str) -> Trainer:
         return _train_ql
     if method == "dqn":
         return _train_dqn
+    if method == "ippo":
+        return _train_ippo
     if method == "coordinated_ppo":
         return _train_coordinated_ppo
     if method == "obs_only":
@@ -88,7 +90,7 @@ def resolve_trainer(method: str) -> Trainer:
         return lambda args, config, episodes, alpha=alpha: _train_coordinated(args, config, episodes, alpha)
     raise ValueError(
         "Unknown method "
-        f"{method!r}. Expected shared_ppo, ql, dqn, coordinated_ppo, obs_only, "
+        f"{method!r}. Expected shared_ppo, ql, dqn, ippo, coordinated_ppo, obs_only, "
         "reward_only, or coordinated_<alpha>."
     )
 
@@ -139,6 +141,14 @@ def _train_ql(args: argparse.Namespace, config: dict[str, Any], episodes: int) -
 
 def _train_dqn(args: argparse.Namespace, config: dict[str, Any], episodes: int) -> None:
     from src.agents.independent_dqn import train
+
+    model_file, curve_file = train(args.scenario, args.seed, episodes, config, demand=args.demand)
+    print(f"model: {model_file}")
+    print(f"curve: {curve_file}")
+
+
+def _train_ippo(args: argparse.Namespace, config: dict[str, Any], episodes: int) -> None:
+    from src.agents.independent_ppo import train
 
     model_file, curve_file = train(args.scenario, args.seed, episodes, config, demand=args.demand)
     print(f"model: {model_file}")
@@ -242,6 +252,14 @@ def _policy_factory(method: str, scenario: str, config: dict[str, Any] | None = 
             return ql_policy_factory(ql_model_path(scenario, train_seed))
 
         return ql_factory
+    if method == "ippo":
+        from src.agents.independent_ppo import model_path as ippo_model_path
+        from src.agents.independent_ppo import policy_factory as ippo_policy_factory
+
+        def ippo_factory(train_seed: int):
+            return ippo_policy_factory(ippo_model_path(scenario, train_seed))
+
+        return ippo_factory
     if method == "dqn":
         from src.agents.independent_dqn import model_path as dqn_model_path
         from src.agents.independent_dqn import policy_factory as dqn_policy_factory

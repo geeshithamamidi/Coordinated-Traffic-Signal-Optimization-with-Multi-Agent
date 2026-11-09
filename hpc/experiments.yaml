@@ -3,6 +3,7 @@
 methods:
   - ql
   - dqn
+  - ippo
   - shared_ppo
   - coordinated_0
   - coordinated_0.25
