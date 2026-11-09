@@ -1,0 +1,15 @@
+\begin{table}[t]
+\centering
+\caption{Results on single (default demand), mean $\pm$ 95\% CI over training seeds (over test episodes for rule-based methods).}
+\label{tab:main_single}
+\resizebox{\columnwidth}{!}{%
+\begin{tabular}{lcccc}
+\toprule
+Method & Wait (s) & Queue (veh) & Trip (s) & Throughput (veh) \\
+\midrule
+fixed\_cycle & 0.58 $\pm$ 0.01 & 7.07 $\pm$ 0.12 & 71.42 $\pm$ 1.01 & 1954.60 $\pm$ 48.51 \\
+fixed\_time & 7.06 $\pm$ 0.32 & 16.28 $\pm$ 1.25 & \textbf{56.72 $\pm$ 1.93} & \textbf{2405.20 $\pm$ 51.66} \\
+max\_pressure & \textbf{0.53 $\pm$ 0.01} & \textbf{6.36 $\pm$ 0.15} & 65.25 $\pm$ 0.92 & 2127.80 $\pm$ 61.72 \\
+\bottomrule
+\end{tabular}}
+\end{table}
