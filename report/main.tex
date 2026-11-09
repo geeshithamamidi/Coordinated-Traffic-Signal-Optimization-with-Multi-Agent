@@ -69,19 +69,65 @@ Prior work shows that coordination can help, but it rarely measures how much eac
 
 \section{Environment and Scenarios}
 \label{sec:env}
-\todo{SUMO, sumo-rl, single-intersection, RESCO grid4x4, cologne8 and the demand files.}
+We simulate traffic with SUMO~\cite{lopez2018sumo} version 1.27.1 through the SUMO-RL~\cite{sumorl} interface, version 1.4.5, which exposes each signalized intersection as an agent in a PettingZoo parallel environment. We use two scenarios in this check-in. \emph{single} is one four-way intersection with one agent. \emph{grid4x4} is the RESCO~\cite{ault2021resco} 4$\times$4 grid with 16 agents. The real-city Cologne8 scenario from RESCO is planned for the final report.
+
+Each episode simulates 3600~s of traffic. Besides the default RESCO route files, we generate demand files with SUMO's \texttt{randomTrips} using fixed seeds, with separate train and test files (test seeds offset by 1000). Light, medium and heavy demand scale the default vehicle count by 0.5, 1.0 and 1.5, which gives 1260, 2520 and 3780 vehicles per hour on \emph{single} and 736, 1473 and 2210 on \emph{grid4x4}. \emph{Surge} adds a stream at twice the medium rate between 1200~s and 2100~s of the episode, and \emph{unbalanced} keeps the medium total but starts about 70\% of trips on west-side edges. Fig.~\ref{fig:demand} shows the departure profiles. Vehicle counts for every file are listed in \texttt{scenarios/README.md}.
+
+\begin{figure}[t]
+\centering
+\includegraphics[width=\columnwidth]{../results/figures/demand_profiles.png}
+\caption{Departures per minute for medium, heavy and surge demand (train files). The shaded band is the surge window.}
+\label{fig:demand}
+\end{figure}
 
 \section{Methods}
 \label{sec:methods}
-\todo{Fixed-time, Max-Pressure, independent Q-learning, DQN and PPO, shared PPO and coordinated PPO.}
+\subsection{Baselines}
+\emph{Fixed-time} runs the signal program stored in the network file. \emph{Tuned fixed-cycle} gives every green phase the same duration, chosen from \{10, 20, 30\}~s by mean waiting time on the validation seeds; 10~s was selected on \emph{single}. \emph{Max-Pressure}~\cite{varaiya2013max} computes, for each green phase $p$ with served movements $\mathcal{M}_p$ (incoming lane $l$, outgoing lane $m$),
+\begin{equation}
+P_p = \sum_{(l,m)\in\mathcal{M}_p} \left( h_l - n_m \right),
+\end{equation}
+where $h_l$ is the number of halting vehicles on $l$ and $n_m$ the number of vehicles on $m$. Once the current phase has run for at least the minimum green plus yellow time, the controller switches to $\arg\max_p P_p$, and keeps the current phase when its pressure is already the largest.
+
+\subsection{Independent Learners}
+All learners observe the SUMO-RL default state (one-hot current phase, a minimum-green flag, and per-lane density and queue) and use the change in cumulative waiting time as reward. Each intersection learns on its own, with no parameter sharing.
+
+\emph{Independent Q-learning} keeps a tabular Q-function per agent. The phase one-hot and minimum-green flag are kept as integers, and each density and queue value in $[0,1]$ is binned into 10 equal bins. It uses $\alpha=0.1$, $\gamma=0.99$ and $\epsilon$-greedy exploration from 0.05 decaying to 0.01.
+
+\emph{Independent DQN}~\cite{mnih2015dqn} gives each agent its own Q-network (two hidden layers of 64 units), target network and replay buffer (50{,}000 transitions). It minimizes the Huber loss to $r + \gamma(1-d)\max_{a'} Q_{\bar\theta}(s',a')$ with Adam (learning rate $10^{-3}$, batch 32), copies the target every 500 steps, and decays $\epsilon$ linearly from 1.0 to 0.01 over the first 30\% of training.
+
+\emph{Independent PPO}~\cite{schulman2017ppo} gives each agent its own actor-critic (two hidden layers of 64 units). Each agent collects 2048 of its own decisions, computes GAE advantages ($\gamma=0.99$, $\lambda=0.95$) and runs 10 epochs of clipped-surrogate updates (clip 0.2, minibatch 64, learning rate $3\cdot10^{-4}$). Because every neighbor keeps changing its policy, each independent learner faces a non-stationary environment, which is the baseline problem that sharing and coordination try to address.
+
+\todo{Shared PPO and coordinated PPO.}
 
 \section{Experimental Setup}
 \label{sec:setup}
-\todo{Hardware, software versions, budgets, seeds and train/validation/test split.}
+Every episode lasts 3600~s of simulated time and agents act every 5~s (720 decisions per episode), with 2~s yellow and 5~s minimum green. Training seeds are 0--4, validation seeds 5--9 and test seeds 10--14, and test episodes use the test route files. For this check-in the budgets are reduced: learned methods on \emph{single} were trained for 30 episodes with training seeds 0, 1 and 2, and independent PPO has only passed a 2-episode check. Rule-based methods need no training and are evaluated on the five test seeds.
+
+We report average waiting time per vehicle, average queue length, average trip duration and throughput from SUMO's trip information. For learned methods the test episodes are first averaged within each training seed, and the 95\% confidence interval $t_{0.975,n-1}\,s/\sqrt{n}$ is taken over the seed means; rule-based methods have one configuration, so their interval is taken over test episodes. Pairwise comparisons use Welch's $t$-test when both groups pass a Shapiro--Wilk check and Mann--Whitney $U$ otherwise, with Holm correction across comparisons.
+
+Experiments ran on Google Colab CPU instances (Python 3.13, SUMO through TraCI) and the team's laptops.
 
 \section{Results}
 \label{sec:results}
-\todo{Main table and learning curves.}
+Table~\ref{tab:main_single} shows results on \emph{single} and Table~\ref{tab:main_grid4x4} on \emph{grid4x4}, with the waiting-time bars in Fig.~\ref{fig:bars}.
+
+\input{../results/tables/main_single.tex}
+\input{../results/tables/main_grid4x4.tex}
+
+\begin{figure}[t]
+\centering
+\includegraphics[width=\columnwidth]{../results/figures/bars_single.png}
+\includegraphics[width=\columnwidth]{../results/figures/bars_grid4x4.png}
+\caption{Average waiting time per vehicle (mean $\pm$ 95\% CI) on \emph{single} (top) and \emph{grid4x4} (bottom).}
+\label{fig:bars}
+\end{figure}
+
+On \emph{single}, every adaptive method brings average waiting time to about 0.5~s, against 7.06~s for fixed-time, so waiting time alone does not separate them. Queue length and trip duration do: shared PPO has the shortest queue (2.33 vehicles) and trip duration (32.6~s), followed by independent Q-learning (3.48, 38.4~s) and independent DQN (4.05, 42.8~s), while Max-Pressure (6.36, 65.3~s) and tuned fixed-cycle (7.07, 71.4~s) keep longer queues. The learned methods also have the highest throughput, about 2490 vehicles against 2405 for fixed-time and 2128 for Max-Pressure.
+
+On \emph{grid4x4}, only the baselines have been run so far. Max-Pressure has the lowest waiting time (1.09~s, against 3.96~s for tuned fixed-cycle and 6.45~s for fixed-time) and the shortest trips (165~s against 186~s and 203~s). Learned methods on \emph{grid4x4} and independent PPO results are pending.
+
+\todo{Learning-curve figure (results/figures/curves\_single.png).}
 
 \section{Ablation and Sensitivity}
 \label{sec:ablation}
