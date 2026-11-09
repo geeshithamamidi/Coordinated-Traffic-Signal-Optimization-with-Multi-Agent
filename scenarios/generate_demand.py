@@ -9,6 +9,8 @@ import tempfile
 import xml.etree.ElementTree as ET
 from pathlib import Path
 
+import numpy as np
+
 REPO_ROOT = Path(__file__).resolve().parents[1]
 if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
@@ -16,6 +18,14 @@ if str(REPO_ROOT) not in sys.path:
 from src.envs.make_env import _NUM_SECONDS, _SCENARIOS, _sumo_rl_api, make_env  # noqa: E402
 
 LEVELS = {"light": 0.5, "medium": 1.0, "heavy": 1.5}
+# surge: medium demand plus an extra stream at twice the medium rate during
+# [SURGE_WINDOW) seconds of the episode. unbalanced: medium demand with
+# WEST_SHARE of trips starting on west-side edges and the rest elsewhere.
+EXTRA_LEVELS = ("surge", "unbalanced")
+ALL_LEVELS = [*LEVELS, *EXTRA_LEVELS]
+SURGE_WINDOW = (1200, 2100)
+WEST_SHARE = 0.7
+EXTRA_SEED_SHIFT = 500
 SPLIT_SEED_OFFSET = {"train": 0, "test": 1000}
 SCENARIO_DIR = REPO_ROOT / "scenarios"
 
@@ -63,7 +73,15 @@ def count_vehicles(route_file: Path, begin_time: int, horizon: int = _NUM_SECOND
     return total
 
 
-def random_trips(net_file: Path, out_file: Path, begin: int, end: int, period: float, seed: int) -> None:
+def random_trips(
+    net_file: Path,
+    out_file: Path,
+    begin: int,
+    end: int,
+    period: float,
+    seed: int,
+    weights_prefix: Path | None = None,
+) -> None:
     script = Path(os.environ["SUMO_HOME"]) / "tools" / "randomTrips.py"
     out_file.parent.mkdir(parents=True, exist_ok=True)
     with tempfile.TemporaryDirectory() as tmp:
@@ -82,9 +100,89 @@ def random_trips(net_file: Path, out_file: Path, begin: int, end: int, period: f
             "--validate",
             "--prefix", f"s{seed}_",
         ]
+        if weights_prefix is not None:
+            cmd += ["--weights-prefix", str(weights_prefix)]
         subprocess.run(cmd, check=True, stdout=subprocess.DEVNULL)
     for extra in out_file.parent.glob(out_file.stem.replace(".rou", "") + "*.alt.xml"):
         extra.unlink()
+
+
+def merge_route_files(parts: list[Path], out_file: Path) -> None:
+    """Merge randomTrips route files into one, vehicles sorted by depart time."""
+    vtypes: dict[str, ET.Element] = {}
+    others, vehicles = [], []
+    for part in parts:
+        for element in ET.parse(part).getroot():
+            tag = element.tag.split("}")[-1]
+            if tag == "vType":
+                vtypes.setdefault(element.get("id"), element)
+            elif tag in ("vehicle", "trip", "flow"):
+                vehicles.append(element)
+            else:
+                others.append(element)
+    vehicles.sort(key=lambda e: float(e.get("depart", e.get("begin", 0))))
+    root = ET.Element("routes")
+    root.extend([*vtypes.values(), *others, *vehicles])
+    out_file.parent.mkdir(parents=True, exist_ok=True)
+    ET.ElementTree(root).write(out_file, encoding="UTF-8", xml_declaration=True)
+
+
+def write_origin_weights(net_file: Path, prefix: Path, west: bool) -> int:
+    """randomTrips source weights: 1 for west-side (or non-west) passenger edges, 0 otherwise.
+
+    An edge is west-side when its start node lies in the western quarter of the
+    network's x-range. Returns the number of edges with weight 1.
+    """
+    import sumolib
+
+    net = sumolib.net.readNet(str(net_file))
+    xs = [node.getCoord()[0] for node in net.getNodes()]
+    cut = min(xs) + 0.25 * (max(xs) - min(xs))
+    lines = ["<edgedata>", '  <interval begin="0" end="1000000">']
+    selected = 0
+    for edge in net.getEdges():
+        if not edge.allows("passenger"):
+            continue
+        is_west = edge.getFromNode().getCoord()[0] <= cut
+        value = 1.0 if is_west == west else 0.0
+        selected += int(value > 0)
+        lines.append(f'    <edge id="{edge.getID()}" value="{value}"/>')
+    lines += ["  </interval>", "</edgedata>"]
+    Path(f"{prefix}.src.xml").write_text("\n".join(lines) + "\n", encoding="utf-8")
+    if selected == 0:
+        raise RuntimeError(f"No {'west' if west else 'non-west'} origin edges found in {net_file}")
+    return selected
+
+
+def build_level(net_file: Path, out_file: Path, level: str, begin_time: int, default_count: float, seed: int) -> float:
+    """Write one route file for `level` and return its target vehicle count."""
+    end_time = begin_time + _NUM_SECONDS
+    if level in LEVELS:
+        target = default_count * LEVELS[level]
+        random_trips(net_file, out_file, begin_time, end_time, _NUM_SECONDS / target, seed)
+        return target
+
+    medium_period = _NUM_SECONDS / default_count
+    with tempfile.TemporaryDirectory() as tmp:
+        tmp = Path(tmp)
+        base, extra = tmp / "base.rou.xml", tmp / "extra.rou.xml"
+        if level == "surge":
+            start, stop = SURGE_WINDOW
+            random_trips(net_file, base, begin_time, end_time, medium_period, seed)
+            random_trips(net_file, extra, begin_time + start, begin_time + stop, medium_period / 2, seed + EXTRA_SEED_SHIFT)
+            target = default_count + 2 * default_count * (stop - start) / _NUM_SECONDS
+        elif level == "unbalanced":
+            write_origin_weights(net_file, tmp / "west", west=True)
+            write_origin_weights(net_file, tmp / "rest", west=False)
+            random_trips(net_file, base, begin_time, end_time, medium_period / WEST_SHARE, seed, tmp / "west")
+            random_trips(
+                net_file, extra, begin_time, end_time, medium_period / (1 - WEST_SHARE), seed + EXTRA_SEED_SHIFT, tmp / "rest"
+            )
+            target = default_count
+        else:
+            raise ValueError(f"Unknown demand level {level!r}")
+        merge_route_files([base, extra], out_file)
+    return target
 
 
 def generate(scenario: str, levels: list[str]) -> list[dict]:
@@ -92,13 +190,12 @@ def generate(scenario: str, levels: list[str]) -> list[dict]:
     default_count = count_vehicles(route_file, begin_time)
     print(f"{scenario}: default route file has {default_count:.0f} vehicles in {_NUM_SECONDS} s")
     rows = []
-    for index, level in enumerate(levels):
-        target = default_count * LEVELS[level]
-        period = _NUM_SECONDS / target
+    for level in levels:
+        index = ALL_LEVELS.index(level)  # seeds stay fixed whatever subset is generated
         for split, offset in SPLIT_SEED_OFFSET.items():
             seed = offset + index
             out_file = SCENARIO_DIR / scenario / f"{level}_{split}.rou.xml"
-            random_trips(net_file, out_file, begin_time, begin_time + _NUM_SECONDS, period, seed)
+            target = build_level(net_file, out_file, level, begin_time, default_count, seed)
             actual = count_vehicles(out_file, begin_time)
             rows.append(
                 {"scenario": scenario, "level": level, "split": split, "target": target, "actual": actual, "seed": seed}
@@ -120,12 +217,53 @@ def verify(scenario: str, levels: list[str], steps: int = 50) -> None:
             print(f"  verified {scenario} {level}_{split} for {steps} steps")
 
 
+def plot_profiles(scenarios: list[str], levels: tuple[str, ...] = ("medium", "heavy", "surge")) -> Path:
+    """Departures per minute of the train route files, one panel per scenario."""
+    import matplotlib
+
+    matplotlib.use("Agg")
+    import matplotlib.pyplot as plt
+
+    out = REPO_ROOT / "results" / "figures" / "demand_profiles.png"
+    out.parent.mkdir(parents=True, exist_ok=True)
+    fig, axes = plt.subplots(1, len(scenarios), figsize=(5.5 * len(scenarios), 3.4), squeeze=False)
+    for ax, scenario in zip(axes[0], scenarios):
+        begin_time = upstream_files(scenario)[2]
+        for level in levels:
+            path = SCENARIO_DIR / scenario / f"{level}_train.rou.xml"
+            if not path.is_file():
+                continue
+            departs = [
+                float(e.get("depart")) - begin_time
+                for e in ET.parse(path).getroot()
+                if e.tag.split("}")[-1] in ("vehicle", "trip") and e.get("depart") is not None
+            ]
+            minutes = np.array([d // 60 for d in departs if 0 <= d < _NUM_SECONDS], dtype=int)
+            ax.plot(np.bincount(minutes, minlength=_NUM_SECONDS // 60), label=level)
+        ax.axvspan(SURGE_WINDOW[0] / 60, SURGE_WINDOW[1] / 60, color="grey", alpha=0.15, label="surge window")
+        ax.set_title(scenario)
+        ax.set_xlabel("Minute of episode")
+        ax.set_ylabel("Departures per minute")
+        ax.grid(alpha=0.3)
+        ax.legend()
+    fig.tight_layout()
+    fig.savefig(out, dpi=300)
+    plt.close(fig)
+    print(f"wrote {out.relative_to(REPO_ROOT)}")
+    return out
+
+
 def write_readme(rows: list[dict]) -> None:
     lines = [
         "# Scenarios",
         "",
         "Generated by `python scenarios/generate_demand.py --scenarios single grid4x4`.",
         "Counts are vehicles departing in the 3600 s episode (vehicles/hour).",
+        "",
+        f"- `surge`: medium demand plus an extra stream at twice the medium rate between "
+        f"{SURGE_WINDOW[0]} s and {SURGE_WINDOW[1]} s of the episode.",
+        f"- `unbalanced`: medium demand with about {WEST_SHARE:.0%} of trips starting on west-side "
+        "edges (start node in the western quarter of the network) and the rest elsewhere.",
         "",
         "| scenario | demand | split | target veh/h | generated veh/h | seed |",
         "| --- | --- | --- | --- | --- | --- |",
@@ -138,9 +276,9 @@ def write_readme(rows: list[dict]) -> None:
 
 
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description="Generate light/medium/heavy route files with randomTrips.")
+    parser = argparse.ArgumentParser(description="Generate light/medium/heavy/surge/unbalanced route files with randomTrips.")
     parser.add_argument("--scenarios", nargs="+", default=["single", "grid4x4"])
-    parser.add_argument("--levels", nargs="+", default=list(LEVELS), choices=list(LEVELS))
+    parser.add_argument("--levels", nargs="+", default=list(ALL_LEVELS), choices=list(ALL_LEVELS))
     parser.add_argument("--skip-verify", action="store_true")
     return parser.parse_args(argv)
 
@@ -154,6 +292,7 @@ def main(argv: list[str] | None = None) -> None:
         if not args.skip_verify:
             verify(scenario, args.levels)
     write_readme(rows)
+    plot_profiles(args.scenarios)
 
 
 if __name__ == "__main__":
