@@ -18,6 +18,7 @@ Alpha is scored on ``configs/base.yaml`` ``seeds.validation`` and written to
 
 from __future__ import annotations
 
+import inspect
 from pathlib import Path
 from typing import Any, Callable
 
@@ -44,7 +45,9 @@ ABLATIONS = {
     "reward_only": {"neighbor_obs": False, "alpha_key": "reward_alpha"},
 }
 
-ScoreFn = Callable[[float, list[int]], float]
+ScoreFn = Callable[..., float | dict[str, Any]]
+
+VALIDATION_METRICS = ("avg_waiting_time", "throughput", "avg_queue", "teleports")
 
 
 def canonical_alpha(alpha: float) -> float:
@@ -251,46 +254,65 @@ def choose_alpha(
     demand: str = "default",
     alphas: tuple[float, ...] = ALLOWED_ALPHAS,
     seeds: list[int] | None = None,
+    train_seeds: list[int] | None = None,
     score_fn: ScoreFn | None = None,
     frozen_path: Path = FROZEN_PATH,
     verbose: int = 0,
 ) -> float:
     """Pick the spatial-reward alpha on validation route seeds and save it.
 
-    Each candidate is trained with neighbor observations on, then scored by
-    mean ``avg_waiting_time`` on the validation seeds. The lowest wait wins.
-    Ties keep the smaller alpha. ``reward_alpha`` is that winner when it is
-    positive, otherwise the best alpha among the positive candidates, so the
-    reward-only ablation stays at alpha > 0. ``score_fn`` replaces training
-    in tests. Test seeds never reach it.
+    Each candidate is trained with neighbor observations on, once per train
+    seed, for ``episodes``. The score is the mean ``avg_waiting_time`` on the
+    validation route seeds, then the mean of those values across train seeds.
+    The lowest wait wins. Ties keep the smaller alpha. ``reward_alpha`` is
+    that winner when it is positive, otherwise the best alpha among the
+    positive candidates. ``score_fn`` replaces training in tests. Test seeds
+    never reach it. The validation policy is deterministic.
     """
     route_seeds = validation_seeds(config, seeds)
-    _check_train_seed(config, train_seed)
+    selected = [int(train_seed)] if not train_seeds else [int(seed) for seed in train_seeds]
+    if not selected:
+        raise ValueError("Alpha selection needs at least one train seed.")
+    for seed in selected:
+        _check_train_seed(config, seed)
     candidates = tuple(canonical_alpha(alpha) for alpha in alphas)
     if not candidates:
         raise ValueError("Alpha selection needs at least one candidate.")
-    scores: dict[float, float] = {}
+    details: dict[float, list[dict[str, Any]]] = {}
     for alpha in candidates:
-        if score_fn is None:
-            score = _score_alpha(
-                scenario,
-                train_seed,
-                episodes,
-                config,
-                demand,
-                alpha,
-                route_seeds,
-                verbose=verbose,
+        per_train = []
+        for seed in selected:
+            if score_fn is None:
+                result = _score_alpha(
+                    scenario,
+                    seed,
+                    episodes,
+                    config,
+                    demand,
+                    alpha,
+                    route_seeds,
+                    verbose=verbose,
+                )
+            else:
+                result = _invoke_score(score_fn, alpha, route_seeds, seed)
+            per_train.append(_as_score_detail(result, seed))
+        details[alpha] = per_train
+        summary = _average_details(per_train)
+        if not np.isfinite(summary["avg_waiting_time"]):
+            raise RuntimeError(
+                f"Validation score for alpha={alpha:g} is not finite: {summary['avg_waiting_time']}."
             )
-        else:
-            score = float(score_fn(alpha, list(route_seeds)))
-        if not np.isfinite(score):
-            raise RuntimeError(f"Validation score for alpha={alpha:g} is not finite: {score}.")
-        scores[alpha] = score
-        print(f"alpha={alpha:g} validation avg_waiting_time={score:.6f} seeds={route_seeds}")
+        print(
+            f"alpha={alpha:g} validation avg_waiting_time={summary['avg_waiting_time']:.6f} "
+            f"train_seeds={selected} validation_seeds={route_seeds}"
+        )
 
-    best = min(scores, key=lambda alpha: (scores[alpha], alpha))
-    positive = {alpha: score for alpha, score in scores.items() if alpha > 0.0}
+    best = min(details, key=lambda alpha: (_average_details(details[alpha])["avg_waiting_time"], alpha))
+    positive = {
+        alpha: _average_details(rows)["avg_waiting_time"]
+        for alpha, rows in details.items()
+        if alpha > 0.0
+    }
     if not positive:
         raise ValueError("Alpha selection needs a candidate greater than 0 for the reward-only ablation.")
     reward_alpha = best if best > 0.0 else min(positive, key=lambda alpha: (positive[alpha], alpha))
@@ -299,11 +321,12 @@ def choose_alpha(
         "reward_alpha": reward_alpha,
         "scenario": scenario,
         "demand": demand,
-        "train_seed": int(train_seed),
+        "train_seed": int(selected[0]),
+        "train_seeds": selected,
         "episodes": int(episodes),
         "neighbor_obs": "on",
         "validation_seeds": route_seeds,
-        "scores": [{"alpha": alpha, "avg_waiting_time": scores[alpha]} for alpha in candidates],
+        "scores": [_score_row(alpha, details[alpha]) for alpha in candidates],
     }
     _write_frozen(payload, frozen_path)
     print(
@@ -364,8 +387,13 @@ def _score_alpha(
     alpha: float,
     route_seeds: list[int],
     verbose: int,
-) -> float:
-    """Train obs-on PPO at ``alpha`` and return mean validation waiting time."""
+) -> dict[str, Any]:
+    """Train obs-on PPO at ``alpha`` and score it on validation route seeds.
+
+    ``route_seeds`` must already be validation seeds. The loaded policy is the
+    shared PPO factory, which calls ``predict(..., deterministic=True)``.
+    """
+    route_seeds = validation_seeds(config, route_seeds)
     tag = alpha_tag(alpha)
     saved_model = (
         REPO_ROOT
@@ -408,7 +436,7 @@ def _score_alpha(
         log_dir=log_dir,
     )
     policy_fn = policy_factory(saved_model, neighbor_obs=True)
-    waits = []
+    rows = []
     for route_seed in route_seeds:
         env = make_env(
             scenario,
@@ -419,17 +447,73 @@ def _score_alpha(
             additional_sumo_cmd="--no-step-log --no-warnings",
         )
         metrics = run_episode(env, policy_fn, route_seed)
-        waits.append(metrics["avg_waiting_time"])
+        row = _validation_row(metrics, route_seed)
+        rows.append(row)
         print(
-            f"alpha={alpha:g} validation_seed={route_seed} "
-            f"avg_waiting_time={metrics['avg_waiting_time']:.6f}"
+            f"alpha={alpha:g} train_seed={train_seed} validation_seed={route_seed} "
+            f"avg_waiting_time={row['avg_waiting_time']:.6f} "
+            f"throughput={row['throughput']:.6f} "
+            f"avg_queue={row['avg_queue']:.6f} "
+            f"teleports={row['teleports']:.6f}"
         )
-    return float(np.mean(waits))
+    summary = _average_details([{"train_seed": train_seed, **{key: row[key] for key in VALIDATION_METRICS}} for row in rows])
+    summary["train_seed"] = int(train_seed)
+    summary["validation"] = rows
+    return summary
 
 
 def _neighbor_map(env) -> dict[str, list[str]]:
     sumo_env = _sumo_environment(env)
     return build_neighbor_map(sumo_env._net, list(env.possible_agents))
+
+
+def _validation_row(metrics: dict[str, Any], validation_seed: int) -> dict[str, Any]:
+    row = {"validation_seed": int(validation_seed)}
+    for key in VALIDATION_METRICS:
+        row[key] = float(metrics[key])
+    return row
+
+
+def _as_score_detail(result: float | dict[str, Any], train_seed: int) -> dict[str, Any]:
+    if isinstance(result, dict):
+        detail = {"train_seed": int(result.get("train_seed", train_seed))}
+        for key in VALIDATION_METRICS:
+            if key in result:
+                detail[key] = float(result[key])
+        if "validation" in result:
+            detail["validation"] = list(result["validation"])
+        if "avg_waiting_time" not in detail:
+            raise ValueError("A validation score dict needs avg_waiting_time.")
+        return detail
+    return {"train_seed": int(train_seed), "avg_waiting_time": float(result)}
+
+
+def _average_details(details: list[dict[str, Any]]) -> dict[str, float]:
+    if not details:
+        raise ValueError("Alpha selection produced no scores.")
+    averaged = {}
+    for key in VALIDATION_METRICS:
+        if all(key in detail for detail in details):
+            averaged[key] = float(np.mean([detail[key] for detail in details]))
+    if "avg_waiting_time" not in averaged:
+        raise ValueError("Alpha selection scores are missing avg_waiting_time.")
+    return averaged
+
+
+def _score_row(alpha: float, details: list[dict[str, Any]]) -> dict[str, Any]:
+    row: dict[str, Any] = {"alpha": alpha, **_average_details(details)}
+    if any("validation" in detail or set(detail) - {"train_seed", *VALIDATION_METRICS} for detail in details):
+        row["by_train_seed"] = details
+    elif len(details) > 1:
+        row["by_train_seed"] = details
+    return row
+
+
+def _invoke_score(score_fn: ScoreFn, alpha: float, route_seeds: list[int], train_seed: int):
+    parameters = list(inspect.signature(score_fn).parameters)
+    if len(parameters) >= 3:
+        return score_fn(alpha, list(route_seeds), train_seed)
+    return score_fn(alpha, list(route_seeds))
 
 
 def _check_train_seed(config: dict[str, Any], train_seed: int) -> None:

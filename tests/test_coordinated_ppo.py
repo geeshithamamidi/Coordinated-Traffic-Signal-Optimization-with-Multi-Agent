@@ -1,9 +1,12 @@
 """Coordinated PPO ablations and validation-only alpha selection."""
 
+import inspect
 import shutil
 
 import pandas as pd
 import pytest
+
+from scripts.train_coordinated_ppo import parse_args, resolve_selection
 
 from src.agents.coordinated_ppo import (
     ablation_settings,
@@ -90,6 +93,101 @@ def test_reward_alpha_stays_positive_when_zero_wins(tmp_path):
     assert payload["reward_alpha"] == 0.5
     assert ablation_settings("reward_only", frozen, config) == (False, 0.5)
     assert ablation_settings("coordinated_ppo", frozen, config) == (True, 0.0)
+
+
+def test_selection_options_default_to_the_single_seed_budget():
+    args = parse_args(
+        ["--scenario", "grid4x4", "--seed", "0", "--episodes", "8", "--select-alpha"]
+    )
+    assert args.selection_episodes is None
+    assert args.selection_seeds is None
+    episodes, seeds = resolve_selection(args)
+    assert episodes == 8
+    assert seeds == [0]
+
+
+def test_selection_options_override_episodes_and_seeds():
+    args = parse_args(
+        [
+            "--scenario",
+            "grid4x4",
+            "--seed",
+            "0",
+            "--episodes",
+            "8",
+            "--select-alpha",
+            "--selection-episodes",
+            "50",
+            "--selection-seeds",
+            "0",
+            "1",
+            "2",
+        ]
+    )
+    episodes, seeds = resolve_selection(args)
+    assert episodes == 50
+    assert seeds == [0, 1, 2]
+
+
+def test_choose_alpha_averages_selection_seeds_and_stores_validation_metrics(tmp_path):
+    config = load_config()
+    seen = []
+
+    def score(alpha, seeds, train_seed):
+        seen.append((alpha, list(seeds), train_seed))
+        assert seeds == [5, 6, 7, 8, 9]
+        assert set(seeds).isdisjoint(set(config["seeds"]["test"]))
+        waiting = {0.0: 4.0, 0.25: 1.0, 0.5: 3.0, 0.75: 2.0}[alpha] + train_seed
+        return {
+            "avg_waiting_time": waiting,
+            "throughput": 100.0 + alpha,
+            "avg_queue": 2.0,
+            "teleports": 0.0,
+            "validation": [
+                {
+                    "validation_seed": seed,
+                    "avg_waiting_time": waiting,
+                    "throughput": 100.0 + alpha,
+                    "avg_queue": 2.0,
+                    "teleports": 0.0,
+                }
+                for seed in seeds
+            ],
+        }
+
+    frozen = tmp_path / "frozen.yaml"
+    best = choose_alpha(
+        "grid4x4",
+        train_seed=0,
+        episodes=50,
+        config=config,
+        train_seeds=[0, 1, 2],
+        score_fn=score,
+        frozen_path=frozen,
+    )
+    # Means over train seeds: alpha 0 -> 5, 0.25 -> 2, 0.5 -> 4, 0.75 -> 3.
+    assert best == 0.25
+    assert [item[1] for item in seen] == [[5, 6, 7, 8, 9]] * 12
+    assert sorted({item[2] for item in seen}) == [0, 1, 2]
+    payload = load_frozen(frozen, config)
+    assert payload["train_seeds"] == [0, 1, 2]
+    assert payload["episodes"] == 50
+    assert payload["validation_seeds"] == [5, 6, 7, 8, 9]
+    chosen = next(row for row in payload["scores"] if row["alpha"] == 0.25)
+    assert chosen["avg_waiting_time"] == 2.0
+    assert chosen["throughput"] == 100.25
+    assert chosen["avg_queue"] == 2.0
+    assert chosen["teleports"] == 0.0
+    assert chosen["by_train_seed"][0]["validation"][0]["validation_seed"] == 5
+
+
+def test_validation_policy_is_deterministic():
+    from src.agents.shared_ppo import policy_factory as shared_policy_factory
+
+    source = inspect.getsource(shared_policy_factory)
+    assert "deterministic=True" in source
+    coordinated = inspect.getsource(policy_factory)
+    assert "shared_policy_factory" in coordinated
 
 
 def test_choose_alpha_refuses_a_test_train_seed():

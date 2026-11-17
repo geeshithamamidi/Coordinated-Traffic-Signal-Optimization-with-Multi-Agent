@@ -11,6 +11,7 @@ One script covers the ablations:
 Examples:
     python scripts/train_coordinated_ppo.py --scenario grid4x4 --seed 0 --episodes 300 --neighbor-obs on --alpha 0.5
     python scripts/train_coordinated_ppo.py --select-alpha --scenario grid4x4 --seed 0 --episodes 8
+    python scripts/train_coordinated_ppo.py --select-alpha --scenario grid4x4 --seed 0 --episodes 8 --selection-episodes 50 --selection-seeds 0 1 2
 """
 
 from __future__ import annotations
@@ -49,19 +50,47 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         action="store_true",
         help="Train each alpha with neighbor observations on, score validation seeds, and write configs/frozen.yaml.",
     )
+    parser.add_argument(
+        "--selection-episodes",
+        type=int,
+        help="Episodes per alpha during --select-alpha. Defaults to --episodes.",
+    )
+    parser.add_argument(
+        "--selection-seeds",
+        type=int,
+        nargs="+",
+        help="Train seeds for --select-alpha. Defaults to --seed. The frozen alpha is the lowest mean over these seeds.",
+    )
     return parser.parse_args(argv)
+
+
+def resolve_selection(args: argparse.Namespace) -> tuple[int, list[int]]:
+    """Episode budget and train seeds for ``--select-alpha``.
+
+    Omitted ``--selection-episodes`` uses ``--episodes``. Omitted
+    ``--selection-seeds`` uses ``--seed``.
+    """
+    episodes = args.episodes if args.selection_episodes is None else args.selection_episodes
+    if episodes is None or int(episodes) < 1:
+        raise ValueError(f"selection episodes must be positive, got {episodes}.")
+    seeds = [int(args.seed)] if not args.selection_seeds else [int(seed) for seed in args.selection_seeds]
+    if not seeds:
+        raise ValueError("selection seeds must be non-empty.")
+    return int(episodes), seeds
 
 
 def main(argv: list[str] | None = None) -> None:
     args = parse_args(argv)
     config = load_config(args.config)
     if args.select_alpha:
+        episodes, train_seeds = resolve_selection(args)
         best = choose_alpha(
             args.scenario,
-            args.seed,
-            args.episodes,
+            train_seeds[0],
+            episodes,
             config,
             demand=args.demand,
+            train_seeds=train_seeds,
         )
         print(f"alpha: {best:g}")
         return
