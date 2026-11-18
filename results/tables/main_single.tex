@@ -7,10 +7,13 @@
 \toprule
 Method & Wait (s) & Queue (veh) & Trip (s) & Throughput (veh) \\
 \midrule
-fixed\_cycle & 0.58 $\pm$ 0.01 & 7.07 $\pm$ 0.12 & 71.42 $\pm$ 1.01 & 1954.60 $\pm$ 48.51 \\
-fixed\_time & 7.06 $\pm$ 0.32 & 16.28 $\pm$ 1.25 & 56.72 $\pm$ 1.93 & 2405.20 $\pm$ 51.66 \\
-max\_pressure & \textbf{0.53 $\pm$ 0.01} & 6.36 $\pm$ 0.15 & 65.25 $\pm$ 0.92 & 2127.80 $\pm$ 61.72 \\
-shared\_ppo & 0.53 $\pm$ 0.43 & \textbf{2.33 $\pm$ 0.26} & \textbf{32.55 $\pm$ 0.71} & \textbf{2496.40 $\pm$ 0.50} \\
+Fixed-time & 7.06 $\pm$ 0.32 & 16.28 $\pm$ 1.25 & 56.72 $\pm$ 1.93 & 2405.20 $\pm$ 51.66 \\
+Independent DQN & 0.51 $\pm$ 0.03 & 4.05 $\pm$ 2.37 & 42.76 $\pm$ 17.45 & 2486.47 $\pm$ 14.16 \\
+Independent PPO & \textbf{0.48 $\pm$ 0.06} & \textbf{2.27 $\pm$ 0.09} & \textbf{32.33 $\pm$ 0.65} & \textbf{2496.80 $\pm$ 1.79} \\
+Independent Q-learning & 0.51 $\pm$ 0.04 & 3.40 $\pm$ 0.33 & 37.95 $\pm$ 1.73 & 2491.33 $\pm$ 2.91 \\
+Max-Pressure & 0.53 $\pm$ 0.01 & 6.36 $\pm$ 0.15 & 65.25 $\pm$ 0.92 & 2127.80 $\pm$ 61.72 \\
+Shared PPO & 0.53 $\pm$ 0.43 & 2.33 $\pm$ 0.26 & 32.55 $\pm$ 0.71 & 2496.40 $\pm$ 0.50 \\
+Tuned fixed-cycle & 0.58 $\pm$ 0.01 & 7.07 $\pm$ 0.12 & 71.42 $\pm$ 1.01 & 1954.60 $\pm$ 48.51 \\
 \bottomrule
 \end{tabular}}
 \end{table}
