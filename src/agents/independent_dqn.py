@@ -218,7 +218,7 @@ def train(
 
 def policy_factory(path: str | Path):
     """Greedy policy_fn(obs_dict, env) from a saved model file."""
-    data = torch.load(path, map_location="cpu")
+    data = torch.load(path, map_location="cpu", weights_only=False)
     nets = {}
     for agent_id, entry in data.items():
         net = QNetwork(int(entry["obs_dim"]), int(entry["n_actions"]))
