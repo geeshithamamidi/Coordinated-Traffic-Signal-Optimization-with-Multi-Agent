@@ -2,6 +2,7 @@
 \IEEEoverridecommandlockouts
 \usepackage{cite}
 \usepackage{amsmath,amssymb,amsfonts}
+\usepackage{algorithm}
 \usepackage{algorithmic}
 \usepackage{graphicx}
 \usepackage{textcomp}
@@ -38,9 +39,21 @@ traffic signal control, multi-agent reinforcement learning, coordination, SUMO, 
 \end{IEEEkeywords}
 
 \section{Introduction}
-\todo{Problem, motivation, approach summary and contributions.}
+A fixed signal plan stores one green split and one set of offsets. Those numbers are computed for a demand pattern that the city expects to see. Real arrivals change within the hour and from one block to the next. A plan that clears the morning peak can hold a long queue when a surge arrives, and an offset that creates a green wave in one direction spills vehicles back when the flow is unbalanced. The plan has no measurement of the queue that is forming now, so it cannot give green time to the movement that needs it.
 
-Code: \url{https://github.com/geeshithamamidi/Coordinated-Traffic-Signal-Optimization-with-Multi-Agent}
+Local adaptive control does use that measurement. Max-Pressure, in particular, serves the phase whose upstream queue exceeds the downstream queue by the most, and it is a strong controller from local information alone. The open question for a network is how much further explicit coordination helps once that local controller is already in the comparison. A neighbor may be about to turn green, or a short extra wait at one intersection may keep a downstream link from blocking. A policy that sees only its own lanes cannot make that trade.
+
+We ask how much coordination helps over strong local control such as Max-Pressure. Every method runs in the same SUMO network, for the same 3600~s hour, with the same decision interval and the same train, validation, and test seeds. The learned controllers are independent learners, one parameter-shared PPO policy, and a coordinated PPO policy. Coordination adds two mechanisms from multi-agent actor-critic traffic control: a fixed block of neighbor observations, and a spatial reward that mixes the local waiting-time reward with the rewards of adjacent signals. The mixing weight is chosen on validation routes and then frozen. Fixed-time control and Max-Pressure are the non-learning references.
+
+The contributions are:
+\begin{itemize}
+\item A single evaluation protocol for fixed-time control, Max-Pressure, independent learners, shared PPO, and coordinated PPO, with disjoint train, validation, and test seeds.
+\item A neighbor observation of four fixed slots, so the input size does not depend on the degree of the intersection, together with a spatial reward that returns the local reward when its weight is zero.
+\item Selection of that weight on validation seeds only, with the chosen value stored for the later test runs.
+\item A comparison that separates parameter sharing, neighbor observations, and the spatial reward, and that scores each variant against Max-Pressure.
+\end{itemize}
+
+Code and trained artifacts are at \url{https://github.com/geeshithamamidi/Coordinated-Traffic-Signal-Optimization-with-Multi-Agent} and \url{https://drive.google.com/drive/u/0/folders/0AHZPnMnLpLvkUk9PVA}.
 
 \section{Background and Related Work}
 \label{sec:related}
@@ -65,7 +78,44 @@ Prior work shows that coordination can help, but it rarely measures how much eac
 
 \section{Problem Formulation}
 \label{sec:problem}
-\todo{Markov game, observations, actions and rewards.}
+Each signalized intersection is an agent. The network is a Markov game
+\begin{equation}
+\mathcal{G} = \langle N, S, \{A_i\}_{i \in N}, P, \{R_i\}_{i \in N}, \gamma \rangle,
+\label{eq:game}
+\end{equation}
+with discount $\gamma = 0.99$. $N$ is the set of agents, $S$ is the joint traffic state, $A_i$ is the discrete set of green phases at intersection $i$, $P$ is the SUMO transition, and $R_i$ is the reward defined below. Agent $i$ does not observe $S$. It receives the SUMO-RL default vector
+\begin{equation}
+o_i^t = \big[ \mathrm{onehot}(p_i^t),\; g_i^t,\; d_i^t,\; q_i^t \big].
+\label{eq:obs}
+\end{equation}
+Here $p_i^t$ is the current green phase, $g_i^t \in \{0,1\}$ is 1 only after the phase has been active for at least the minimum green plus the yellow time, and $d_i^t$ and $q_i^t$ are the per-lane density and queue on the incoming lanes, each entry clipped to $[0,1]$. Density is the vehicle count divided by the lane capacity, and queue uses the same ratio for vehicles slower than $0.1$~m/s. The length is $|o_i| = n_i^{\mathrm{ph}} + 1 + 2 n_i^{\mathrm{lanes}}$: 11 on \emph{single} (2 phases and 4 lanes) and 33 on \emph{grid4x4} (8 phases and 12 lanes).
+
+The action $a_i^t \in \{0,\ldots,n_i^{\mathrm{ph}}-1\}$ is the next green phase. SUMO keeps the current phase when the requested phase is the same or when the minimum green of 5~s plus the yellow of 2~s has not yet elapsed. Otherwise it inserts the yellow state and then opens the requested green. Decisions occur every $\Delta t = 5$~s.
+
+The local reward is the sumo-rl \texttt{diff-waiting-time} reward. Let $W_i^t$ be the sum of accumulated waiting time on the incoming lanes of $i$, with $W_i^0 = 0$. Then
+\begin{equation}
+r_i^t = \frac{W_i^{t-1} - W_i^t}{100}.
+\label{eq:reward}
+\end{equation}
+A positive value means the waiting time at $i$ fell. The division by 100 is the scale sumo-rl applies to this reward.
+
+Two difficulties follow from~\eqref{eq:game}. Because every neighbor is learning, the transition that agent $i$ experiences changes as the other policies change, so the environment is non-stationary from $i$'s point of view. Because $r_i^t$ counts only the lanes at $i$, a phase that clears $i$ by blocking $j$ still looks successful, which is the credit-assignment problem. Table~\ref{tab:levels} lists the three coordination levels we compare. Independent learners give each intersection its own parameters. Shared PPO keeps the local observation and the local reward and ties the intersections together with one set of weights. Coordinated PPO keeps that shared policy and adds neighbor observations and the spatial reward of Section~\ref{sec:methods}.
+
+\begin{table}[t]
+\centering
+\caption{Three coordination levels. $o_i$ and $r_i$ are~\eqref{eq:obs} and~\eqref{eq:reward}. The coordinated observation and reward are~\eqref{eq:coordobs} and~\eqref{eq:spatial}.}
+\label{tab:levels}
+\resizebox{\columnwidth}{!}{%
+\begin{tabular}{llll}
+\toprule
+Level & Parameters & Observation & Reward \\
+\midrule
+Independent & one network per agent & $o_i$ & $r_i$ \\
+Shared PPO & one network for all agents & $o_i$ & $r_i$ \\
+Coordinated PPO & one network for all agents & $\tilde{o}_i$ (4 neighbor slots) & $\tilde{r}_i$ \\
+\bottomrule
+\end{tabular}}
+\end{table}
 
 \section{Environment and Scenarios}
 \label{sec:env}
@@ -98,7 +148,59 @@ All learners observe the SUMO-RL default state (one-hot current phase, a minimum
 
 \emph{Independent PPO}~\cite{schulman2017ppo} gives each agent its own actor-critic (two hidden layers of 64 units). Each agent collects 2048 of its own decisions, computes GAE advantages ($\gamma=0.99$, $\lambda=0.95$) and runs 10 epochs of clipped-surrogate updates (clip 0.2, minibatch 64, learning rate $3\cdot10^{-4}$). Because every neighbor keeps changing its policy, each independent learner faces a non-stationary environment, which is the baseline problem that sharing and coordination try to address.
 
-\todo{Shared PPO and coordinated PPO.}
+\subsection{Shared PPO}
+Shared PPO trains one MLP policy for every intersection~\cite{gupta2017cooperative,schulman2017ppo}. The network sees the local observation~\eqref{eq:obs} and is trained on the local reward~\eqref{eq:reward}. SuperSuit pads observations and action spaces so that signals with different phase counts or lane counts share one input size, converts the PettingZoo environment into one vector slot per agent, and concatenates those slots for Stable-Baselines3. On \emph{single} and \emph{grid4x4} every signal already has the same space, so the padded vector matches the raw one. One environment step is one decision for every agent, and each episode contains 720 decisions, so a run of $E$ episodes and $|N|$ agents uses $E \times 720 \times |N|$ PPO steps.
+
+Advantages are generalized advantage estimates with $\gamma = 0.99$ and $\lambda = 0.95$. With $n_{\mathrm{steps}} = 2048$, ten epochs, and minibatches of 64, PPO maximizes the clipped surrogate. The probability ratio~\eqref{eq:ratio} and the objective~\eqref{eq:clip} are
+\begin{align}
+\rho_t(\theta) &= \frac{\pi_\theta(a_t \mid o_t)}{\pi_{\theta_{\mathrm{old}}}(a_t \mid o_t)}, \label{eq:ratio} \\
+L^{\mathrm{CLIP}}(\theta) &= \hat{\mathbb{E}}_t \Big[ \min\big( \rho_t(\theta)\hat{A}_t,\; \mathrm{clip}(\rho_t(\theta), 1-\epsilon, 1+\epsilon)\hat{A}_t \big) \Big], \label{eq:clip}
+\end{align}
+with clip range $\epsilon = 0.2$ and learning rate $3 \times 10^{-4}$. At evaluation the policy is deterministic.
+
+\subsection{Coordinated PPO}
+Coordinated PPO uses the same PPO update and the same SuperSuit stack. Before that stack, the environment is wrapped as $\mathrm{SpatialReward}(\mathrm{NeighborObs}(\mathrm{make\_env}), \alpha)$. Neighbor links are the signalized junctions one edge upstream or downstream, stored in both directions and sorted by identifier.
+
+\texttt{NeighborObsWrapper} appends $k_{\max} = 4$ slots to $o_i$. Neighbors are sorted by identifier and truncated to four, so the slot order is the same at every reset. Slot $k$, holding neighbor $j$, is~\eqref{eq:slot}:
+\begin{equation}
+s_{i,k}^t =
+\begin{cases}
+[\bar{q}_j^t,\; \bar{d}_j^t,\; \mathrm{onehot}_{P}(p_j^t),\; 1] & \text{if the slot is used}, \\
+\mathbf{0} & \text{if the slot is empty}.
+\end{cases}
+\label{eq:slot}
+\end{equation}
+$\bar{q}_j^t$ is the mean of the normalized per-lane queues at $j$, $\bar{d}_j^t$ is the mean incoming density, and the one-hot phase is padded to $P$, the largest green-phase count in the network. The last entry is a presence bit. On \emph{grid4x4}, $P = 8$, so each slot has $2 + 8 + 1 = 11$ entries. The coordinated observation is
+\begin{equation}
+\tilde{o}_i^t = \big[ o_i^t;\; s_{i,1}^t;\; \ldots;\; s_{i,4}^t \big],
+\label{eq:coordobs}
+\end{equation}
+which has $33 + 4 \times 11 = 77$ dimensions on the grid. Empty slots stay zero, so a corner with two neighbors has the same input size as an interior signal with four.
+
+\texttt{SpatialRewardWrapper} then applies the one-hop spatial reward of Chu et al.~\cite{chu2020ma2c},
+\begin{equation}
+\tilde{r}_i^t = r_i^t + \alpha \sum_{j \in N(i)} r_j^t,
+\label{eq:spatial}
+\end{equation}
+where $N(i)$ is the neighbor set and $r_j^t$ is~\eqref{eq:reward}. The implementation returns the original $r_i^t$ when $\alpha = 0$. The candidates are $\alpha \in \{0, 0.25, 0.5, 0.75\}$. Each candidate is trained with neighbor observations on and scored by mean waiting time on validation seeds 5--9, using a deterministic policy. The lowest mean wins, and a tie keeps the smaller $\alpha$. Test seeds 10--14 are excluded. The winner is written to \texttt{configs/frozen.yaml}; the grid pilot stored there is $\alpha = 0.75$. Algorithm~\ref{alg:coord} is the training and selection procedure. The reported ablations turn the two wrappers on separately: shared PPO uses neither, observation-only uses the slots with $\alpha = 0$, and reward-only uses~\eqref{eq:spatial} with $\alpha > 0$ and the local observation.
+
+\begin{algorithm}[t]
+\caption{Coordinated PPO with validation-only $\alpha$}
+\label{alg:coord}
+\begin{algorithmic}[1]
+\REQUIRE train seeds, episodes $E$, candidates $\{0, 0.25, 0.5, 0.75\}$, validation seeds $\{5,\ldots,9\}$
+\FOR{each candidate $\alpha$}
+  \STATE Train one shared PPO policy on $\tilde{o}_i$ and $\tilde{r}_i(\alpha)$ for $E$ episodes
+  \FOR{each validation seed $v$}
+    \STATE Roll out the deterministic policy for one 3600~s episode
+    \STATE Record the mean waiting time
+  \ENDFOR
+\ENDFOR
+\STATE Freeze $\alpha^{\star} = \arg\min_\alpha$ of the mean waiting time, breaking ties toward the smaller $\alpha$
+\STATE Retrain with neighbor slots and $\alpha^{\star}$ on the train seeds
+\STATE Evaluate the deterministic policy on test seeds $\{10,\ldots,14\}$
+\end{algorithmic}
+\end{algorithm}
 
 \section{Experimental Setup}
 \label{sec:setup}
