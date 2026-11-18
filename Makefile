@@ -8,3 +8,4 @@ clean-report:
 
 results:
 	python scripts/aggregate_results.py --scenario single grid4x4
+	python scripts/ablation_table.py
