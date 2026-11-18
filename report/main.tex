@@ -229,15 +229,35 @@ On \emph{single}, every adaptive method brings average waiting time to about 0.5
 
 On \emph{grid4x4}, only the baselines have been run so far. Max-Pressure has the lowest waiting time (1.09~s, against 3.96~s for tuned fixed-cycle and 6.45~s for fixed-time) and the shortest trips (165~s against 186~s and 203~s). Learned methods on \emph{grid4x4} and independent PPO results are pending.
 
-\todo{Learning-curve figure (results/figures/curves\_single.png).}
+The files \texttt{results/figures/curves\_single.png} and \texttt{results/figures/curves\_grid4x4.png} are not in the repository, and \texttt{results/raw/train\_curves} has no Q-learning, DQN, independent PPO, or shared PPO curve CSVs. The curves on disk are the 8-episode alpha-selection pilot on \emph{grid4x4}, train seed 0 (Fig.~\ref{fig:alpha_curves}).
+
+\begin{figure}[t]
+\centering
+\includegraphics[width=\columnwidth]{../results/figures/04_learning_curves_by_alpha.png}
+\caption{Mean system waiting time during the 8-episode alpha-selection pilot on \emph{grid4x4}, train seed 0, one run per $\alpha$. A confidence band needs at least two seeds.}
+\label{fig:alpha_curves}
+\end{figure}
+
+In those CSVs every alpha records 10.95~s at episode 1 and 12.48~s at episode 2, which is the maximum. Episode 8 is 9.59~s, 9.40~s, 10.15~s, and 9.37~s for $\alpha = 0$, $0.25$, $0.5$, and $0.75$. Across all 32 rows the waiting time stays between 9.37~s and 12.48~s.
 
 \section{Ablation and Sensitivity}
 \label{sec:ablation}
-\todo{Neighbor observations, spatial reward and alpha sweep.}
+\texttt{results/tables/ablation\_grid4x4.tex} is not in the repository. The test-set CSVs for shared PPO, observation-only, reward-only, and coordinated PPO on \emph{grid4x4} are not in \texttt{results/raw}, so this draft has no test-set comparison of neighbor observations against the spatial reward.
+
+\texttt{configs/frozen.yaml} records one alpha-selection pilot: \emph{grid4x4}, default demand, neighbor observations on, train seed 0, 8 episodes, validation seeds 5--9. It does not record a 3-seed selection. Validation \texttt{avg\_waiting\_time} is 376.07~s, 345.74~s, 289.33~s, and 182.40~s for $\alpha = 0$, $0.25$, $0.5$, and $0.75$ (Fig.~\ref{fig:alpha_val}). The file sets both \texttt{alpha} and \texttt{reward\_alpha} to 0.75. Throughput, average queue, and teleports are not in that file.
+
+\begin{figure}[t]
+\centering
+\includegraphics[width=\columnwidth]{../results/figures/04_validation_waiting_time_vs_alpha.png}
+\caption{Validation mean waiting time against $\alpha$ for the 8-episode pilot in \texttt{configs/frozen.yaml} (\emph{grid4x4}, train seed 0, validation seeds 5--9).}
+\label{fig:alpha_val}
+\end{figure}
+
+On this pilot, validation waiting time falls as $\alpha$ rises, and 0.75 is the lowest of the four candidates. Every one of those scores is far above the \emph{grid4x4} baseline waiting times in Table~\ref{tab:main_grid4x4}: Max-Pressure 1.09~s, tuned fixed-cycle 3.96~s, and fixed-time 6.45~s. The same policies' training curves in Fig.~\ref{fig:alpha_curves} stay between 9.37~s and 12.48~s. The pilot therefore ranks a larger spatial weight ahead of $\alpha = 0$, and it does not produce a policy whose validation waiting time is near Max-Pressure.
 
 \section{Qualitative Analysis}
 \label{sec:qualitative}
-\todo{Queue heatmaps and surge case study.}
+\texttt{results/figures/heatmap\_grid4x4.png} and \texttt{results/figures/heatmap\_surge\_grid4x4.png} are not in the repository, and \texttt{results/raw/heatmaps} has no per-step stopped-vehicle CSVs. The seed-0 shared PPO and coordinated PPO evaluation models those plots need are not under \texttt{results/models}. There is no intersection-level queue map, and no surge comparison, to describe.
 
 \section{Limitations and Future Work}
 \label{sec:limitations}
@@ -245,7 +265,11 @@ On \emph{grid4x4}, only the baselines have been run so far. Max-Pressure has the
 
 \section{Conclusion}
 \label{sec:conclusion}
-\todo{What we learned.}
+On \emph{single}, Table~\ref{tab:main_single} gives shared PPO and Max-Pressure the same mean waiting time, 0.53~s, against 7.06~s for fixed-time and 0.58~s for the tuned fixed cycle. The shared PPO waiting-time interval is wide ($\pm 0.43$~s). Queue, trip duration, and throughput separate the methods: shared PPO has queue 2.33 vehicles, trip duration 32.55~s, and throughput 2496.40 vehicles, against 6.36, 65.25~s, and 2127.80 for Max-Pressure and 16.28, 56.72~s, and 2405.20 for fixed-time.
+
+On \emph{grid4x4}, Table~\ref{tab:main_grid4x4} contains only the three baselines. Max-Pressure is lowest on waiting time (1.09~s), queue (10.63 vehicles), and trip duration (165.06~s), and highest on throughput (1453.00 vehicles). Learned grid results, the four-way ablation, and both queue heatmaps are absent, so the test-set question of how much coordination adds over Max-Pressure is still open. The only coordination numbers are the 8-episode validation pilot: waiting time falls from 376.07~s at $\alpha = 0$ to 182.40~s at $\alpha = 0.75$, and that is the alpha stored in \texttt{configs/frozen.yaml}. Those waits remain far above the grid baselines, and a 3-seed selection is not in the file.
+
+Three concrete next steps follow from those gaps. First, rerun alpha selection with three train seeds and a longer budget, and store throughput, queue, and teleports next to waiting time, before treating 0.75 as the test weight. Second, evaluate shared PPO, observation-only, reward-only, and coordinated PPO on the \emph{grid4x4} test seeds and write \texttt{results/tables/ablation\_grid4x4.tex}. Third, once the seed-0 models exist, draw the default-demand queue heatmaps and the surge time-by-intersection heatmap.
 
 \section*{Outline}
 \todo{Paste the outline from Section 6 of the proposal, then remove this section once the draft follows it.}
