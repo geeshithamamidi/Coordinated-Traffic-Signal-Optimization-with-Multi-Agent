@@ -228,6 +228,14 @@ def _policy_factory(method: str, scenario: str, config: dict[str, Any] | None = 
             return policy_factory(model_path(scenario, train_seed, True, chosen), True)
 
         return sweep_factory
+    if method == "fixed_time":
+        from src.baselines.fixed_time import fixed_time_factory
+
+        return fixed_time_factory
+    if method == "max_pressure":
+        from src.baselines.max_pressure import max_pressure_factory
+
+        return max_pressure_factory
     if method == "shared_ppo":
         from src.agents.shared_ppo import model_path, policy_factory
 
