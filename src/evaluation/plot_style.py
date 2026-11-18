@@ -27,3 +27,23 @@ def color_for(method: str, index: int = 0) -> str:
     if method in METHOD_COLORS:
         return METHOD_COLORS[method]
     return PALETTE[index % len(PALETTE)]
+
+
+# Readable names for tables and figures. Keys are the method ids used in the CSVs.
+METHOD_LABELS = {
+    "fixed_time": "Fixed-time",
+    "fixed_cycle": "Tuned fixed-cycle",
+    "max_pressure": "Max-Pressure",
+    "ql": "Independent Q-learning",
+    "dqn": "Independent DQN",
+    "ippo": "Independent PPO",
+    "shared_ppo": "Shared PPO",
+    "coordinated_ppo": "Coordinated PPO",
+    "obs_only": "Obs-only",
+    "reward_only": "Reward-only",
+}
+
+
+def label_for(method: str) -> str:
+    """Readable label for ``method``; unknown ids are returned unchanged."""
+    return METHOD_LABELS.get(method, method)

@@ -60,7 +60,12 @@ def _use_pettingzoo_agent_selector_class() -> None:
     PettingZoo 1.25+ binds that name to the module. Bind the class first.
     """
     import pettingzoo.utils as pettingzoo_utils
-    from pettingzoo.utils.agent_selector import AgentSelector
+
+    try:
+        from pettingzoo.utils.agent_selector import AgentSelector
+    except ImportError:
+        # PettingZoo <= 1.24.3 (our pin) already exposes agent_selector as a class.
+        return
 
     if not callable(getattr(pettingzoo_utils, "agent_selector", None)):
         pettingzoo_utils.agent_selector = AgentSelector

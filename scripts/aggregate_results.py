@@ -25,7 +25,7 @@ if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
 from src.evaluation.metrics import SUMMARY_COLUMNS  # noqa: E402
-from src.evaluation.plot_style import color_for  # noqa: E402
+from src.evaluation.plot_style import color_for, label_for  # noqa: E402
 from src.evaluation.stats import summarize, to_latex_table  # noqa: E402
 
 RAW = REPO_ROOT / "results" / "raw"
@@ -61,7 +61,7 @@ def bar_chart(summary: pd.DataFrame, scenario: str, demand: str, out: Path) -> N
     colors = method_colors(sorted(block["method"]))
     fig, ax = plt.subplots(figsize=(6.5, 3.8))
     ax.bar(
-        block["method"],
+        [label_for(m) for m in block["method"]],
         block["mean"],
         yerr=block["ci95"].fillna(0),
         capsize=4,
@@ -71,6 +71,8 @@ def bar_chart(summary: pd.DataFrame, scenario: str, demand: str, out: Path) -> N
     ax.set_ylabel("Avg waiting time per vehicle (s)")
     ax.set_title(f"{scenario}, {demand} demand (mean ± 95% CI)")
     ax.tick_params(axis="x", rotation=30)
+    for tick in ax.get_xticklabels():
+        tick.set_ha("right")
     ax.grid(axis="y", alpha=0.3)
     fig.tight_layout()
     fig.savefig(out, dpi=300)
@@ -93,7 +95,8 @@ def main(argv: list[str] | None = None) -> None:
             "(over test episodes for rule-based methods)."
         )
         table = TABLES / f"main_{scenario}{suffix}.tex"
-        table.write_text(to_latex_table(summary, METRICS, caption, f"tab:main_{scenario}{suffix}"), encoding="utf-8")
+        labelled = summary.assign(method=summary["method"].map(label_for))
+        table.write_text(to_latex_table(labelled, METRICS, caption, f"tab:main_{scenario}{suffix}"), encoding="utf-8")
         figure = FIGURES / f"bars_{scenario}{suffix}.png"
         bar_chart(summary, scenario, args.demand, figure)
 
