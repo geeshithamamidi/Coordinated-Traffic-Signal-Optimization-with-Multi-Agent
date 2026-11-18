@@ -12,4 +12,6 @@ jobs:
           python-version: "3.11"
           cache: pip
       - run: pip install -r requirements.txt
-      - run: pytest -m "not sumo" -q
+      - name: Set SUMO_HOME
+        run: echo "SUMO_HOME=$(python -c 'import sumo; print(sumo.SUMO_HOME)')" >> "$GITHUB_ENV"
+      - run: python -m pytest -m "not sumo" -q
