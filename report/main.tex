@@ -9,7 +9,6 @@
 \usepackage{xcolor}
 \usepackage{booktabs}
 \usepackage{url}
-\newcommand{\todo}[1]{\textcolor{red}{TODO: #1}}
 
 \begin{document}
 
@@ -33,9 +32,9 @@ lahari.pydikondala@sjsu.edu}
 \begin{abstract}
 A fixed traffic signal gives each direction the same green time on every cycle. When more cars arrive than that plan assumed, a queue builds on one approach while another stays green and empty. Max-Pressure avoids that mistake: at each corner it serves the approach with the most waiting cars, relative to the street they will enter. This study asks whether a learned controller that also watches neighboring corners can beat that local rule.
 
-We simulated one hour of traffic, with a decision every five seconds, on a single four-way intersection and on a four-by-four grid of sixteen intersections. Every controller saw the same roads and the same test traffic: a fixed plan, a cycle whose green length was chosen on held-out traffic, Max-Pressure, and one shared neural network (shared PPO).
+We simulated one hour of traffic, with a decision every five seconds, on a single four-way intersection and on a four-by-four grid of sixteen intersections. Every controller saw the same roads and the same test traffic: a fixed plan, a cycle whose green length was chosen on held-out traffic, Max-Pressure, independent Q-learning, DQN and PPO, and one shared neural network (shared PPO).
 
-On the single intersection, shared PPO and Max-Pressure both average 0.53 seconds of waiting time per vehicle, against 7.06 seconds for the fixed plan and 0.58 seconds for the tuned cycle. Shared PPO leaves a shorter queue (2.33 vehicles against 6.36), finishes trips in 32.55 seconds against 65.25, and serves 2496 vehicles against 2128. On the grid, learned controllers are not in the test table. Of the three that are, Max-Pressure is best on every measure: 1.09 seconds of waiting, a queue of 10.63 vehicles, trips of 165.06 seconds, and 1453 vehicles served, against 6.45 seconds, 26.93 vehicles, 203.29 seconds, and 1440 vehicles for the fixed plan. The tuned cycle waits 3.96 seconds.
+On the single intersection, independent PPO has the lowest average waiting time (0.48 seconds per vehicle), with independent Q-learning and DQN at 0.51 and shared PPO and Max-Pressure at 0.53, against 7.06 seconds for the fixed plan and 0.58 for the tuned cycle. The learned controllers leave shorter queues (2.27 to 4.05 vehicles against 6.36 for Max-Pressure), finish trips in 32.3 to 42.8 seconds against 65.25, and serve 2486 to 2497 vehicles against 2128. On the grid, learned controllers are not in the test table. Of the three that are, Max-Pressure is best on every measure: 1.09 seconds of waiting, a queue of 10.63 vehicles, trips of 165.06 seconds, and 1453 vehicles served, against 6.45 seconds, 26.93 vehicles, 203.29 seconds, and 1440 vehicles for the fixed plan. The tuned cycle waits 3.96 seconds.
 
 At one intersection, learning matches Max-Pressure on delay and improves queues, travel time, and throughput. On the grid, Max-Pressure is the best controller measured so far, and whether coordination beats it is still untested.
 \end{abstract}
@@ -58,6 +57,9 @@ The contributions are:
 \item Selection of that weight on validation seeds only, with the chosen value stored for the later test runs.
 \item A comparison that separates parameter sharing, neighbor observations, and the spatial reward, and that scores each variant against Max-Pressure.
 \end{itemize}
+
+\paragraph{Artifacts.} Code: \texttt{https://github.com/geeshithamamidi/Coordinated-Traffic-Signal-Optimization-with-Multi-Agent}. Drive folder: \texttt{https://drive.google.com/drive/u/0/folders/0AHZPnMnLpLvkUk9PVA}. Setup instructions are in \texttt{README.md}.
+
 
 Code and trained artifacts are at \url{https://github.com/geeshithamamidi/Coordinated-Traffic-Signal-Optimization-with-Multi-Agent} and \url{https://drive.google.com/drive/u/0/folders/0AHZPnMnLpLvkUk9PVA}.
 
@@ -125,7 +127,7 @@ Coordinated PPO & one network for all agents & $\tilde{o}_i$ (4 neighbor slots) 
 
 \section{Environment and Scenarios}
 \label{sec:env}
-We simulate traffic with SUMO~\cite{lopez2018sumo} version 1.27.1 through the SUMO-RL~\cite{sumorl} interface, version 1.4.5, which exposes each signalized intersection as an agent in a PettingZoo parallel environment. We use two scenarios in this check-in. \emph{single} is one four-way intersection with one agent. \emph{grid4x4} is the RESCO~\cite{ault2021resco} 4$\times$4 grid with 16 agents. The real-city Cologne8 scenario from RESCO is planned for the final report.
+We simulate traffic with SUMO~\cite{lopez2018sumo} version 1.27.1 through the SUMO-RL~\cite{sumorl} interface, version 1.4.5, which exposes each signalized intersection as an agent in a PettingZoo parallel environment. We use two scenarios. \emph{single} is one four-way intersection with one agent. \emph{grid4x4} is the RESCO~\cite{ault2021resco} 4$\times$4 grid with 16 agents. The real-city Cologne8 scenario from RESCO was not run in this report.
 
 Each episode simulates 3600~s of traffic. Besides the default RESCO route files, we generate demand files with SUMO's \texttt{randomTrips} using fixed seeds, with separate train and test files (test seeds offset by 1000). Light, medium and heavy demand scale the default vehicle count by 0.5, 1.0 and 1.5, which gives 1260, 2520 and 3780 vehicles per hour on \emph{single} and 736, 1473 and 2210 on \emph{grid4x4}. \emph{Surge} adds a stream at twice the medium rate between 1200~s and 2100~s of the episode, and \emph{unbalanced} keeps the medium total but starts about 70\% of trips on west-side edges. Fig.~\ref{fig:demand} shows the departure profiles. Vehicle counts for every file are listed in \texttt{scenarios/README.md}.
 
@@ -210,7 +212,7 @@ where $N(i)$ is the neighbor set and $r_j^t$ is~\eqref{eq:reward}. The implement
 
 \section{Experimental Setup}
 \label{sec:setup}
-Every episode lasts 3600~s of simulated time and agents act every 5~s (720 decisions per episode), with 2~s yellow and 5~s minimum green. Training seeds are 0--4, validation seeds 5--9 and test seeds 10--14, and test episodes use the test route files. For this check-in the budgets are reduced: learned methods on \emph{single} were trained for 30 episodes with training seeds 0, 1 and 2, and independent PPO has only passed a 2-episode check. Rule-based methods need no training and are evaluated on the five test seeds.
+Every episode lasts 3600~s of simulated time and agents act every 5~s (720 decisions per episode), with 2~s yellow and 5~s minimum green. Training seeds are 0--4, validation seeds 5--9 and test seeds 10--14, and test episodes use the test route files. Learned methods on \emph{single} (independent Q-learning, DQN and PPO, and shared PPO) were trained for 30 episodes with training seeds 0, 1 and 2, using libsumo on Google Colab. Rule-based methods need no training and are evaluated on the five test seeds.
 
 We report average waiting time per vehicle, average queue length, average trip duration and throughput from SUMO's trip information. For learned methods the test episodes are first averaged within each training seed, and the 95\% confidence interval $t_{0.975,n-1}\,s/\sqrt{n}$ is taken over the seed means; rule-based methods have one configuration, so their interval is taken over test episodes. Pairwise comparisons use Welch's $t$-test when both groups pass a Shapiro--Wilk check and Mann--Whitney $U$ otherwise, with Holm correction across comparisons.
 
@@ -227,15 +229,15 @@ Table~\ref{tab:main_single} shows results on \emph{single} and Table~\ref{tab:ma
 \centering
 \includegraphics[width=\columnwidth]{../results/figures/bars_single.png}
 \includegraphics[width=\columnwidth]{../results/figures/bars_grid4x4.png}
-\caption{Mean waiting time per vehicle with a 95\% confidence interval, default demand. Top: the single intersection (fixed plan, tuned cycle, Max-Pressure, and shared PPO). Bottom: the 4$\times$4 grid, where only the three non-learning controllers have been scored. Lower is better.}
+\caption{Mean waiting time per vehicle with a 95\% confidence interval, default demand. Top: the single intersection (fixed plan, tuned cycle, Max-Pressure and the four learned methods). Bottom: the 4$\times$4 grid, where only the three non-learning controllers have been scored. Lower is better.}
 \label{fig:bars}
 \end{figure}
 
-On \emph{single}, every adaptive method brings average waiting time to about 0.5~s, against 7.06~s for fixed-time, so waiting time alone does not separate them. Queue length and trip duration do: shared PPO has the shortest queue (2.33 vehicles) and trip duration (32.6~s), followed by independent Q-learning (3.48, 38.4~s) and independent DQN (4.05, 42.8~s), while Max-Pressure (6.36, 65.3~s) and tuned fixed-cycle (7.07, 71.4~s) keep longer queues. The learned methods also have the highest throughput, about 2490 vehicles against 2405 for fixed-time and 2128 for Max-Pressure.
+On \emph{single}, every adaptive method brings average waiting time to between 0.48 and 0.58~s, against 7.06~s for fixed-time, so waiting time alone does not separate them. Queue length and trip duration do: independent PPO has the shortest queue (2.27 vehicles) and trip duration (32.3~s), followed by shared PPO (2.33, 32.6~s), independent Q-learning (3.40, 38.0~s) and independent DQN (4.05, 42.8~s), while Max-Pressure (6.36, 65.3~s) and tuned fixed-cycle (7.07, 71.4~s) keep longer queues. The learned methods also have the highest throughput, about 2490 to 2497 vehicles against 2405 for fixed-time and 2128 for Max-Pressure.
 
-On \emph{grid4x4}, only the baselines have been run so far. Max-Pressure has the lowest waiting time (1.09~s, against 3.96~s for tuned fixed-cycle and 6.45~s for fixed-time) and the shortest trips (165~s against 186~s and 203~s). Learned methods on \emph{grid4x4} and independent PPO results are pending.
+On \emph{grid4x4}, only the baselines have been run so far. Max-Pressure has the lowest waiting time (1.09~s, against 3.96~s for tuned fixed-cycle and 6.45~s for fixed-time) and the shortest trips (165~s against 186~s and 203~s). Learned methods on \emph{grid4x4} are pending.
 
-The files \texttt{results/figures/curves\_single.png} and \texttt{results/figures/curves\_grid4x4.png} are not in the repository, and \texttt{results/raw/train\_curves} has no Q-learning, DQN, independent PPO, or shared PPO curve CSVs. The curves on disk are the 8-episode alpha-selection pilot on \emph{grid4x4}, train seed 0 (Fig.~\ref{fig:alpha_curves}).
+Training curves for \emph{single} are recorded in \texttt{results/raw/train\_curves} but are not plotted in this report. The curves on disk are the 8-episode alpha-selection pilot on \emph{grid4x4}, train seed 0 (Fig.~\ref{fig:alpha_curves}).
 
 \begin{figure}[t]
 \centering
@@ -267,11 +269,11 @@ On this pilot, validation waiting time falls as $\alpha$ rises, and 0.75 is the 
 
 \section{Limitations and Future Work}
 \label{sec:limitations}
-\todo{Sim-to-real gap, compute budget and scenarios cut.}
+Our results come from simulation only: SUMO's traffic and car-following models with noise-free queue and density observations, so the sim-to-real gap is untested. Budgets are reduced: learned methods on \emph{single} use three training seeds and 30 episodes, which leaves wide confidence intervals, and the grid has no learned results yet. Cologne8 and Ingolstadt7 were not run. Observations and rewards are the SUMO-RL defaults (lane density and queue, phase, and a waiting-time reward), and other choices could change the ranking.
 
 \section{Conclusion}
 \label{sec:conclusion}
-On \emph{single}, Table~\ref{tab:main_single} gives shared PPO and Max-Pressure the same mean waiting time, 0.53~s, against 7.06~s for fixed-time and 0.58~s for the tuned fixed cycle. The shared PPO waiting-time interval is wide ($\pm 0.43$~s). Queue, trip duration, and throughput separate the methods: shared PPO has queue 2.33 vehicles, trip duration 32.55~s, and throughput 2496.40 vehicles, against 6.36, 65.25~s, and 2127.80 for Max-Pressure and 16.28, 56.72~s, and 2405.20 for fixed-time.
+On \emph{single}, Table~\ref{tab:main_single} shows every adaptive method between 0.48 and 0.58~s of waiting time, against 7.06~s for fixed-time. Independent PPO is lowest ($0.48 \pm 0.06$~s), but its interval overlaps those of Max-Pressure and the other learned methods, and the shared PPO interval is wide ($\pm 0.43$~s), so waiting time does not separate them. Queue, trip duration, and throughput do: independent PPO has queue 2.27 vehicles, trip duration 32.33~s, and throughput 2496.80, followed by shared PPO (2.33, 32.55~s, 2496.40), Q-learning (3.40, 37.95~s, 2491.33) and DQN (4.05, 42.76~s, 2486.47), against 6.36, 65.25~s, and 2127.80 for Max-Pressure and 16.28, 56.72~s, and 2405.20 for fixed-time. With three training seeds the intervals of the learned methods are wide, notably DQN's queue ($\pm 2.37$) and trip duration ($\pm 17.45$~s).
 
 On \emph{grid4x4}, Table~\ref{tab:main_grid4x4} contains only the three baselines. Max-Pressure is lowest on waiting time (1.09~s), queue (10.63 vehicles), and trip duration (165.06~s), and highest on throughput (1453.00 vehicles). Learned grid results, the four-way ablation, and both queue heatmaps are absent, so the test-set question of how much coordination adds over Max-Pressure is still open. The only coordination numbers are the 8-episode validation pilot: waiting time falls from 376.07~s at $\alpha = 0$ to 182.40~s at $\alpha = 0.75$, and that is the alpha stored in \texttt{configs/frozen.yaml}. Those waits remain far above the grid baselines, and a 3-seed selection is not in the file.
 
