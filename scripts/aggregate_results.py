@@ -25,15 +25,13 @@ if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
 from src.evaluation.metrics import SUMMARY_COLUMNS  # noqa: E402
+from src.evaluation.plot_style import color_for  # noqa: E402
 from src.evaluation.stats import summarize, to_latex_table  # noqa: E402
 
 RAW = REPO_ROOT / "results" / "raw"
 TABLES = REPO_ROOT / "results" / "tables"
 FIGURES = REPO_ROOT / "results" / "figures"
 METRICS = ["avg_waiting_time", "avg_queue", "avg_trip_duration", "throughput"]
-
-# Okabe-Ito colorblind-safe palette, used when plot_style.py is not there yet.
-FALLBACK = ["#0072B2", "#E69F00", "#009E73", "#D55E00", "#CC79A7", "#56B4E9", "#F0E442", "#000000"]
 
 
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
@@ -55,13 +53,7 @@ def load_results(scenario: str, demand: str) -> pd.DataFrame:
 
 
 def method_colors(methods: list[str]) -> dict[str, str]:
-    try:
-        from src.evaluation import plot_style  # type: ignore
-
-        palette = getattr(plot_style, "METHOD_COLORS", {})
-    except ImportError:
-        palette = {}
-    return {m: palette.get(m, FALLBACK[i % len(FALLBACK)]) for i, m in enumerate(methods)}
+    return {method: color_for(method, index) for index, method in enumerate(methods)}
 
 
 def bar_chart(summary: pd.DataFrame, scenario: str, demand: str, out: Path) -> None:

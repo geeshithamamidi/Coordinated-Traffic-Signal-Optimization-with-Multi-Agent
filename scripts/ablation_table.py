@@ -26,6 +26,7 @@ if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
 from src.agents.coordinated_ppo import FROZEN_PATH, load_frozen  # noqa: E402
+from src.evaluation.plot_style import color_for  # noqa: E402
 from src.evaluation.stats import (  # noqa: E402
     LOWER_IS_BETTER,
     METRIC_LABELS,
@@ -55,12 +56,6 @@ LABELS = {
     "obs_only": "Obs only",
     "reward_only": "Reward only",
     "coordinated_ppo": "Coordinated PPO",
-}
-COLORS = {
-    "shared_ppo": "#0072B2",
-    "obs_only": "#E69F00",
-    "reward_only": "#009E73",
-    "coordinated_ppo": "#D55E00",
 }
 REQUIRED = {"train_seed", *METRICS}
 
@@ -209,7 +204,7 @@ def save_figure(summary: pd.DataFrame, path: Path) -> None:
             means,
             yerr=errors,
             capsize=4,
-            color=[COLORS[method] for method in methods],
+            color=[color_for(method) for method in methods],
         )
         ax.set_ylabel(ylabel)
         ax.tick_params(axis="x", rotation=20)
