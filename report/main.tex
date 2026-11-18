@@ -31,7 +31,13 @@ lahari.pydikondala@sjsu.edu}
 \maketitle
 
 \begin{abstract}
-\todo{Paste the abstract from Section 5 of the proposal.}
+A fixed traffic signal gives each direction the same green time on every cycle. When more cars arrive than that plan assumed, a queue builds on one approach while another stays green and empty. Max-Pressure avoids that mistake: at each corner it serves the approach with the most waiting cars, relative to the street they will enter. This study asks whether a learned controller that also watches neighboring corners can beat that local rule.
+
+We simulated one hour of traffic, with a decision every five seconds, on a single four-way intersection and on a four-by-four grid of sixteen intersections. Every controller saw the same roads and the same test traffic: a fixed plan, a cycle whose green length was chosen on held-out traffic, Max-Pressure, and one shared neural network (shared PPO).
+
+On the single intersection, shared PPO and Max-Pressure both average 0.53 seconds of waiting time per vehicle, against 7.06 seconds for the fixed plan and 0.58 seconds for the tuned cycle. Shared PPO leaves a shorter queue (2.33 vehicles against 6.36), finishes trips in 32.55 seconds against 65.25, and serves 2496 vehicles against 2128. On the grid, learned controllers are not in the test table. Of the three that are, Max-Pressure is best on every measure: 1.09 seconds of waiting, a queue of 10.63 vehicles, trips of 165.06 seconds, and 1453 vehicles served, against 6.45 seconds, 26.93 vehicles, 203.29 seconds, and 1440 vehicles for the fixed plan. The tuned cycle waits 3.96 seconds.
+
+At one intersection, learning matches Max-Pressure on delay and improves queues, travel time, and throughput. On the grid, Max-Pressure is the best controller measured so far, and whether coordination beats it is still untested.
 \end{abstract}
 
 \begin{IEEEkeywords}
@@ -123,12 +129,12 @@ We simulate traffic with SUMO~\cite{lopez2018sumo} version 1.27.1 through the SU
 
 Each episode simulates 3600~s of traffic. Besides the default RESCO route files, we generate demand files with SUMO's \texttt{randomTrips} using fixed seeds, with separate train and test files (test seeds offset by 1000). Light, medium and heavy demand scale the default vehicle count by 0.5, 1.0 and 1.5, which gives 1260, 2520 and 3780 vehicles per hour on \emph{single} and 736, 1473 and 2210 on \emph{grid4x4}. \emph{Surge} adds a stream at twice the medium rate between 1200~s and 2100~s of the episode, and \emph{unbalanced} keeps the medium total but starts about 70\% of trips on west-side edges. Fig.~\ref{fig:demand} shows the departure profiles. Vehicle counts for every file are listed in \texttt{scenarios/README.md}.
 
-\begin{figure}[t]
+\begin{figure*}[t]
 \centering
-\includegraphics[width=\columnwidth]{../results/figures/demand_profiles.png}
-\caption{Departures per minute for medium, heavy and surge demand (train files). The shaded band is the surge window.}
+\includegraphics[width=\textwidth]{../results/figures/demand_profiles.png}
+\caption{Departures per minute on the single intersection (left) and the 4$\times$4 grid (right) for the medium, heavy, and surge training routes. The shaded band is the surge window, minutes 20 to 35 of the simulated hour.}
 \label{fig:demand}
-\end{figure}
+\end{figure*}
 
 \section{Methods}
 \label{sec:methods}
@@ -185,7 +191,7 @@ which has $33 + 4 \times 11 = 77$ dimensions on the grid. Empty slots stay zero,
 where $N(i)$ is the neighbor set and $r_j^t$ is~\eqref{eq:reward}. The implementation returns the original $r_i^t$ when $\alpha = 0$. The candidates are $\alpha \in \{0, 0.25, 0.5, 0.75\}$. Each candidate is trained with neighbor observations on and scored by mean waiting time on validation seeds 5--9, using a deterministic policy. The lowest mean wins, and a tie keeps the smaller $\alpha$. Test seeds 10--14 are excluded. The winner is written to \texttt{configs/frozen.yaml}; the grid pilot stored there is $\alpha = 0.75$. Algorithm~\ref{alg:coord} is the training and selection procedure. The reported ablations turn the two wrappers on separately: shared PPO uses neither, observation-only uses the slots with $\alpha = 0$, and reward-only uses~\eqref{eq:spatial} with $\alpha > 0$ and the local observation.
 
 \begin{algorithm}[t]
-\caption{Coordinated PPO with validation-only $\alpha$}
+\caption{Coordinated PPO. Each spatial-reward weight is trained with neighbor observations, scored on validation seeds 5--9, and the weight with the lowest mean waiting time is frozen before any test seed is used.}
 \label{alg:coord}
 \begin{algorithmic}[1]
 \REQUIRE train seeds, episodes $E$, candidates $\{0, 0.25, 0.5, 0.75\}$, validation seeds $\{5,\ldots,9\}$
@@ -221,7 +227,7 @@ Table~\ref{tab:main_single} shows results on \emph{single} and Table~\ref{tab:ma
 \centering
 \includegraphics[width=\columnwidth]{../results/figures/bars_single.png}
 \includegraphics[width=\columnwidth]{../results/figures/bars_grid4x4.png}
-\caption{Average waiting time per vehicle (mean $\pm$ 95\% CI) on \emph{single} (top) and \emph{grid4x4} (bottom).}
+\caption{Mean waiting time per vehicle with a 95\% confidence interval, default demand. Top: the single intersection (fixed plan, tuned cycle, Max-Pressure, and shared PPO). Bottom: the 4$\times$4 grid, where only the three non-learning controllers have been scored. Lower is better.}
 \label{fig:bars}
 \end{figure}
 
@@ -234,7 +240,7 @@ The files \texttt{results/figures/curves\_single.png} and \texttt{results/figure
 \begin{figure}[t]
 \centering
 \includegraphics[width=\columnwidth]{../results/figures/04_learning_curves_by_alpha.png}
-\caption{Mean system waiting time during the 8-episode alpha-selection pilot on \emph{grid4x4}, train seed 0, one run per $\alpha$. A confidence band needs at least two seeds.}
+\caption{Training waiting time on the 4$\times$4 grid for the alpha-selection pilot: one run of train seed 0, eight episodes, and one line per spatial-reward weight $\alpha$. The plotted value is the mean system waiting time recorded during that training episode. One seed is not enough for a confidence band.}
 \label{fig:alpha_curves}
 \end{figure}
 
@@ -249,7 +255,7 @@ In those CSVs every alpha records 10.95~s at episode 1 and 12.48~s at episode 2,
 \begin{figure}[t]
 \centering
 \includegraphics[width=\columnwidth]{../results/figures/04_validation_waiting_time_vs_alpha.png}
-\caption{Validation mean waiting time against $\alpha$ for the 8-episode pilot in \texttt{configs/frozen.yaml} (\emph{grid4x4}, train seed 0, validation seeds 5--9).}
+\caption{Validation waiting time against the spatial-reward weight $\alpha$ for the same 8-episode pilot (4$\times$4 grid, train seed 0, validation route seeds 5--9). Each point is the mean waiting time of the deterministic policy. The lowest point, $\alpha = 0.75$, is the weight stored for later test runs.}
 \label{fig:alpha_val}
 \end{figure}
 
@@ -270,9 +276,6 @@ On \emph{single}, Table~\ref{tab:main_single} gives shared PPO and Max-Pressure 
 On \emph{grid4x4}, Table~\ref{tab:main_grid4x4} contains only the three baselines. Max-Pressure is lowest on waiting time (1.09~s), queue (10.63 vehicles), and trip duration (165.06~s), and highest on throughput (1453.00 vehicles). Learned grid results, the four-way ablation, and both queue heatmaps are absent, so the test-set question of how much coordination adds over Max-Pressure is still open. The only coordination numbers are the 8-episode validation pilot: waiting time falls from 376.07~s at $\alpha = 0$ to 182.40~s at $\alpha = 0.75$, and that is the alpha stored in \texttt{configs/frozen.yaml}. Those waits remain far above the grid baselines, and a 3-seed selection is not in the file.
 
 Three concrete next steps follow from those gaps. First, rerun alpha selection with three train seeds and a longer budget, and store throughput, queue, and teleports next to waiting time, before treating 0.75 as the test weight. Second, evaluate shared PPO, observation-only, reward-only, and coordinated PPO on the \emph{grid4x4} test seeds and write \texttt{results/tables/ablation\_grid4x4.tex}. Third, once the seed-0 models exist, draw the default-demand queue heatmaps and the surge time-by-intersection heatmap.
-
-\section*{Outline}
-\todo{Paste the outline from Section 6 of the proposal, then remove this section once the draft follows it.}
 
 \bibliographystyle{IEEEtran}
 \bibliography{refs}
